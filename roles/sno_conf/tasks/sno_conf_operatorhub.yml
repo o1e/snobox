@@ -1,0 +1,22 @@
+---
+- name: Configure OperatorHub default sources
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: OperatorHub
+      metadata:
+        name: cluster
+      spec:
+        disableAllDefaultSources: >-
+          {{
+            (
+              sno_conf_operatorhub.disable_all_default_sources
+              if sno_conf_operatorhub.disable_all_default_sources is defined
+              else (
+                sno_conf_box.distribution == 'okd' and
+                sno_conf_operatorhub.disable_default_sources_for_okd | default(true) | bool
+              )
+            ) | bool
+          }}

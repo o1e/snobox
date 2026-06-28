@@ -1,0 +1,20 @@
+---
+- name: Download OCP artifacts
+  ansible.builtin.import_tasks: sno_prep_dl/sno_prep_dl_ocp.yml
+  when: sno_prep_box.distribution == 'ocp'
+  tags:
+    - sno_prep_dl
+    - sno_prep_dl_ocp
+
+- name: Download OKD artifacts
+  ansible.builtin.import_tasks: sno_prep_dl/sno_prep_dl_okd.yml
+  when: sno_prep_box.distribution == 'okd'
+  tags:
+    - sno_prep_dl
+    - sno_prep_dl_okd
+
+- name: Download common CoreOS artifacts
+  ansible.builtin.import_tasks: sno_prep_dl/sno_prep_dl_coreos.yml
+  tags:
+    - sno_prep_dl
+    - sno_prep_dl_coreos

@@ -1,0 +1,96 @@
+---
+# ---------------------------------------------------------
+# OpenShift installer and client
+# ---------------------------------------------------------
+
+- name: Download sha256sum.txt for OCP clients
+  ansible.builtin.get_url:
+    url: "{{ sno_prep_urls.ocp.inst_base_url }}/sha256sum.txt"
+    dest: "{{ sno_prep_workdirs.downloads_checksums }}/sha256sum_ocp.txt"
+    mode: "0644"
+    force: true
+  delegate_to: localhost
+
+- name: Read sha256sum lines
+  ansible.builtin.set_fact:
+    sno_prep_checksum_lines: "{{ lookup('file', sno_prep_workdirs.downloads_checksums + '/sha256sum_ocp.txt').splitlines() }}"
+
+- name: Find OCP installer and client checksum entries
+  ansible.builtin.set_fact:
+    sno_prep_ocp_inst_checksum_entries: >-
+      {{
+        (sno_prep_checksum_lines
+          | select('search', ' openshift-install-linux(-[0-9][^ ]*)?[.]tar[.]gz$')
+          | list)
+      }}
+    sno_prep_ocp_client_checksum_entries: >-
+      {{
+        (sno_prep_checksum_lines
+          | select('search', ' openshift-client-linux(-[0-9][^ ]*)?[.]tar[.]gz$')
+          | list)
+      }}
+
+- name: Fail if checksums missing
+  ansible.builtin.fail:
+    msg: "Missing checksum entry in sha256sum.txt for installer or oc client tarball."
+  when: >
+    (sno_prep_ocp_inst_checksum_entries | length == 0) or
+    (sno_prep_ocp_client_checksum_entries | length == 0)
+
+- name: Resolve OCP artifact filenames and checksums
+  ansible.builtin.set_fact:
+    sno_prep_ocp_inst_bin: "{{ sno_prep_ocp_inst_checksum_entries[0] | regex_replace('^[a-fA-F0-9]{64}\\s+', '') }}"
+    sno_prep_ocp_client_bin: "{{ sno_prep_ocp_client_checksum_entries[0] | regex_replace('^[a-fA-F0-9]{64}\\s+', '') }}"
+    sno_prep_file_checksum_installer: "{{ sno_prep_ocp_inst_checksum_entries[0] | regex_search('^[a-fA-F0-9]{64}') }}"
+    sno_prep_file_checksum_oc: "{{ sno_prep_ocp_client_checksum_entries[0] | regex_search('^[a-fA-F0-9]{64}') }}"
+
+- name: Download openshift-install tarball with checksum validation
+  ansible.builtin.get_url:
+    url: "{{ sno_prep_urls.ocp.inst_base_url }}/{{ sno_prep_ocp_inst_bin }}"
+    dest: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_ocp_inst_bin }}"
+    mode: "0644"
+    checksum: "sha256:{{ sno_prep_file_checksum_installer }}"
+  delegate_to: localhost
+
+- name: Extract openshift-install into bin/
+  ansible.builtin.unarchive:
+    src: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_ocp_inst_bin }}"
+    dest: "{{ sno_prep_workdirs.bin }}"
+    remote_src: true
+  delegate_to: localhost
+
+- name: Ensure openshift-install is executable
+  ansible.builtin.file:
+    path: "{{ sno_prep_workdirs.bin }}/openshift-install"
+    mode: "0755"
+    state: file
+  delegate_to: localhost
+
+- name: Download oc client tarball with checksum validation
+  ansible.builtin.get_url:
+    url: "{{ sno_prep_urls.ocp.inst_base_url }}/{{ sno_prep_ocp_client_bin }}"
+    dest: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_ocp_client_bin }}"
+    mode: "0644"
+    checksum: "sha256:{{ sno_prep_file_checksum_oc }}"
+  delegate_to: localhost
+
+- name: Extract oc/kubectl into bin/
+  ansible.builtin.unarchive:
+    src: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_ocp_client_bin }}"
+    dest: "{{ sno_prep_workdirs.bin }}"
+    remote_src: true
+  delegate_to: localhost
+
+- name: Ensure oc is executable
+  ansible.builtin.file:
+    path: "{{ sno_prep_workdirs.bin }}/oc"
+    mode: "0755"
+    state: file
+  delegate_to: localhost
+
+- name: Ensure kubectl is executable
+  ansible.builtin.file:
+    path: "{{ sno_prep_workdirs.bin }}/kubectl"
+    mode: "0755"
+    state: file
+  delegate_to: localhost

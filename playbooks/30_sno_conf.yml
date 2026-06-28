@@ -1,0 +1,31 @@
+# playbooks/30_sno_conf.yml
+---
+- name: Configure snobox
+  hosts: snobox
+  gather_facts: false
+  tags:
+    - sno_conf
+  # Set default for kubeconfig
+  vars:
+    sno_conf_kubeconfig: "{{ sno_workdirs.ocp }}/auth/kubeconfig"
+  module_defaults:
+    kubernetes.core.k8s:
+      kubeconfig: "{{ sno_conf_kubeconfig }}"
+    kubernetes.core.k8s_info:
+      kubeconfig: "{{ sno_conf_kubeconfig }}"
+  tasks:
+    - name: Run sno_conf role
+      ansible.builtin.import_role:
+        name: sno_conf
+      vars:
+        sno_conf_box: "{{ sno_box }}"
+        sno_conf_dns: "{{ sno_dns }}"
+        sno_conf_storage: "{{ sno_storage }}"
+        sno_conf_lvms: "{{ sno_lvms }}"
+        sno_conf_ocp_net: "{{ sno_ocp_net }}"
+        sno_conf_workdir: "{{ sno_workdir }}"
+        sno_conf_workdirs: "{{ sno_workdirs }}"
+        sno_conf_users: "{{ sno_users }}"
+        sno_conf_tls: "{{ sno_tls }}"
+      tags:
+        - sno_conf

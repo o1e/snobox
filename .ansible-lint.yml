@@ -1,0 +1,19 @@
+---
+profile: production
+strict: true
+
+exclude_paths:
+  - .ansible/
+  - .git/
+  - collections/
+  - log/
+  - state/
+
+warn_list:
+  - experimental
+  - jinja[spacing]
+  - fqcn[deep]
+
+skip_list:
+  # Task-local temp variables intentionally use short leading-underscore names.
+  - var-naming[no-role-prefix]

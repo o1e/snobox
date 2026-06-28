@@ -1,0 +1,7 @@
+---
+sno_lvms:
+  enabled: false
+  set_default_sc: true
+  vg_name: vg-lvms
+  disks:
+    name_suffixes: []

@@ -1,0 +1,32 @@
+---
+- name: Validate bridge device is configured
+  ansible.builtin.assert:
+    that:
+      - sno_build_net.bridge.virt_dev is defined
+      - (sno_build_net.bridge.virt_dev | length) > 0
+    fail_msg: "sno_net.bridge.virt_dev must be set when sno_net.type == 'bridge'"
+
+- name: Validate bridge mode
+  ansible.builtin.assert:
+    that:
+      - sno_build_net.bridge.mode is defined
+      - sno_build_net.bridge.mode in ['dhcp', 'static']
+      - sno_build_net.bridge.specs is defined
+      - sno_build_net.bridge.specs[sno_build_net.bridge.mode] is defined
+    fail_msg: "sno_net.bridge.mode must be dhcp or static and sno_net.bridge.specs.<mode> must exist"
+
+- name: Validate bridge machine network
+  ansible.builtin.assert:
+    that:
+      - sno_build_net.bridge.cidr is defined
+    fail_msg: "sno_net.bridge.cidr must be set and must match the SNO node IP subnet"
+
+- name: Validate bridge exists on KVM host
+  ansible.builtin.command: "ip -o link show {{ sno_build_net.bridge.virt_dev }}"
+  delegate_to: "{{ sno_build_kvm_host }}"
+  changed_when: false
+
+- name: Validate bridge is UP on KVM host
+  ansible.builtin.command: "ip -o link show {{ sno_build_net.bridge.virt_dev }} up"
+  delegate_to: "{{ sno_build_kvm_host }}"
+  changed_when: false

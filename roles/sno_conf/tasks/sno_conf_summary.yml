@@ -1,0 +1,87 @@
+---
+- name: Read kubeadmin password
+  delegate_to: localhost
+  ansible.builtin.slurp:
+    src: "{{ sno_conf_workdirs.ocp }}/auth/kubeadmin-password"
+  register: _kubeadmin_pw
+  no_log: true
+
+- name: Set kubeadmin password fact
+  ansible.builtin.set_fact:
+    _kubeadmin_password: "{{ _kubeadmin_pw.content | b64decode | trim }}"
+  no_log: true
+
+- name: Build configured users list
+  ansible.builtin.set_fact:
+    _configured_users: >-
+      {{
+        (sno_conf_users.ocp_users.userlist | map(attribute='name') | list)
+        if (sno_conf_users is defined and
+            sno_conf_users.ocp_users is defined and
+            sno_conf_users.ocp_users.userlist is defined)
+        else []
+      }}
+
+- name: Get cluster ID
+  delegate_to: localhost
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ sno_conf_workdirs.ocp }}/auth/kubeconfig"
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+  register: _cv
+
+- name: Set cluster ID fact
+  ansible.builtin.set_fact:
+    _cluster_id: "{{ _cv.resources[0].spec.clusterID | default('') }}"
+
+- name: Write final summary
+  delegate_to: localhost
+  ansible.builtin.copy:
+    dest: "{{ sno_conf_workdir }}/SNOBOX-SUMMARY.txt"
+    mode: "0600"
+    content: |
+      SNOBOX installation and configuration complete
+
+      Cluster:
+        {{ sno_conf_dns.node_fqdn }}
+
+      Distribution:
+        {{ sno_conf_box.distribution }}
+
+      OCP/OKD Version:
+        {{ sno_conf_box[sno_conf_box.distribution].version }}
+
+      KUBECONFIG:
+        export KUBECONFIG={{ sno_conf_workdirs.ocp }}/auth/kubeconfig
+
+      Console:
+        https://{{ sno_conf_dns.console_fqdn }}
+
+      Login:
+        user: kubeadmin
+        password: {{ _kubeadmin_password }}
+
+      API:
+        oc login --insecure-skip-tls-verify=true -u kubeadmin -p {{ _kubeadmin_password }} https://{{ sno_conf_dns.api_fqdn }}:6443
+
+      SSH:
+       ssh -i {{ sno_conf_workdirs.ssh }}/id_{{ sno_conf_box.hostname }} core@{{ sno_conf_dns.node_fqdn }}
+      {% if _configured_users | length > 0 %}
+
+      Configured OCP users:
+      {% for u in _configured_users %}
+        - {{ u }}
+      {% endfor %}
+      {% endif %}
+
+      Red Hat Hybrid Cloud Console (Insights / Cluster Manager):
+      {% if _cluster_id | length > 0 %}
+        https://console.redhat.com/openshift/details/{{ _cluster_id }}
+      {% else %}
+        (cluster ID not available)
+      {% endif %}
+
+- name: Show summary location
+  ansible.builtin.debug:
+    msg: "Summary written to {{ sno_conf_workdir }}/SNOBOX-SUMMARY.txt"

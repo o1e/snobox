@@ -1,0 +1,147 @@
+---
+# sno_build_vm_create.yml
+# 1) Check if VM already exists
+- name: Check if VM already exists
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}" dominfo "{{ sno_build_vm_fqdn }}"
+  delegate_to: localhost
+  register: _vm_dominfo
+  failed_when: false
+  changed_when: false
+
+- name: Abort if VM already exists
+  ansible.builtin.fail:
+    msg: >
+      VM {{ sno_build_vm_fqdn }} already exists.
+      To remove it cleanly run:
+
+        virsh destroy {{ sno_build_vm_fqdn }} || true
+        virsh undefine --remove-all-storage {{ sno_build_vm_fqdn }}
+
+      Then re-run this role.
+  when: _vm_dominfo.rc == 0
+
+# 2) Check installer ISO volume exists
+- name: Check installer ISO volume
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}"
+    vol-info
+    --pool "{{ sno_build_storage.pool_name }}"
+    "{{ sno_build_live_iso_file }}"
+  delegate_to: localhost
+  register: _iso_volinfo
+  failed_when: false
+  changed_when: false
+  when: _vm_dominfo.rc != 0
+
+- name: Fail if installer ISO volume is missing
+  ansible.builtin.fail:
+    msg: >-
+      Missing installer ISO volume {{ sno_build_live_iso_file }}
+      in pool {{ sno_build_storage.pool_name }}.
+  when:
+    - _vm_dominfo.rc != 0
+    - _iso_volinfo.rc != 0
+
+# 3) Create OS/system disk volume
+- name: Create system disk volume (OS)
+  vars:
+    _os: "{{ sno_build_storage.system_disk }}"
+    _os_name: "{{ sno_build_vm_fqdn }}.{{ _os.name_suffix }}.{{ sno_build_storage.disk_defaults.format }}"
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}"
+    vol-create-as
+    --pool "{{ sno_build_storage.pool_name }}"
+    --name "{{ _os_name }}"
+    --capacity "{{ _os.size }}{{ sno_build_storage.disk_defaults.unit }}"
+    --format "{{ sno_build_storage.disk_defaults.format }}"
+  delegate_to: localhost
+  changed_when: true
+  when: _vm_dominfo.rc != 0
+
+# 4) Create data disk volumes (optional list)
+- name: Create data disk volumes
+  vars:
+    _disk_name: "{{ sno_build_vm_fqdn }}.{{ item.name_suffix }}.{{ sno_build_storage.disk_defaults.format }}"
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}"
+    vol-create-as
+    --pool "{{ sno_build_storage.pool_name }}"
+    --name "{{ _disk_name }}"
+    --capacity "{{ item.size }}{{ sno_build_storage.disk_defaults.unit }}"
+    --format "{{ sno_build_storage.disk_defaults.format }}"
+  delegate_to: localhost
+  changed_when: true
+  when: _vm_dominfo.rc != 0
+  loop: "{{ sno_build_storage.data_disks | default([]) }}"
+
+# 5) Create VM with virt-install (define only, do not block, do not autostart)
+- name: Create VM with virt-install (bootstrap create)
+  vars:
+    _os: "{{ sno_build_storage.system_disk }}"
+    _os_name: "{{ sno_build_vm_fqdn }}.{{ _os.name_suffix }}.{{ sno_build_storage.disk_defaults.format }}"
+    _iso_volume: "{{ sno_build_storage.pool_name }}/{{ sno_build_live_iso_file }}"
+    _pool: "{{ sno_build_storage.pool_name }}"
+    _fmt: "{{ sno_build_storage.disk_defaults.format }}"
+    _bus: "{{ sno_build_storage.disk_defaults.bus }}"
+  ansible.builtin.command: >
+    virt-install
+    --connect "{{ sno_build_libvirt_uri }}"
+    --name "{{ sno_build_vm_fqdn }}"
+    --memory "{{ sno_build_box.specs.mem }}"
+    --vcpus "{{ sno_build_box.specs.vcpu }}"
+    --osinfo generic
+    --disk "vol={{ _pool }}/{{ _os_name }},format={{ _fmt }},bus={{ _bus }},cache=none,discard=unmap,sparse=on"
+    {% for disk in sno_build_storage.data_disks | default([]) %}
+    {% set _disk_name = sno_build_vm_fqdn ~ '.' ~ disk.name_suffix ~ '.' ~ _fmt %}
+    {% set _disk_serial = sno_build_box.clustername ~ '-' ~ disk.name_suffix %}
+    --disk "vol={{ _pool }}/{{ _disk_name }},format={{ _fmt }},bus={{ _bus }},cache=none,discard=unmap,sparse=on,serial={{ _disk_serial }}"
+    {% endfor %}
+    --disk "vol={{ _iso_volume }},device=cdrom,readonly=on"
+    {% if sno_build_net.type == 'bridge' %}
+    --network "bridge={{ sno_build_net.bridge.virt_dev }},model=virtio,mac={{ sno_build_net.mac }}"
+    {% else %}
+    --network "network={{ sno_build_net.nat.network | default('default') }},model=virtio,mac={{ sno_build_net.mac }}"
+    {% endif %}
+    --graphics vnc,listen=127.0.0.1
+    --video vga
+    --serial pty
+    --console pty,target.type=serial
+    --import
+    --boot hd,cdrom
+    --noautoconsole
+    --noreboot
+    --wait 0
+  delegate_to: localhost
+  register: _virt_install
+  changed_when: true
+  when: _vm_dominfo.rc != 0
+
+# 6) Start VM (only if not running)
+- name: Get VM state
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}" domstate "{{ sno_build_vm_fqdn }}"
+  delegate_to: localhost
+  register: _vm_state
+  changed_when: false
+  failed_when: false
+
+- name: Start VM
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}" start "{{ sno_build_vm_fqdn }}"
+  delegate_to: localhost
+  register: _vm_start
+  changed_when: "'started' in (_vm_start.stdout | lower)"
+  failed_when: false
+  when: (_vm_state.stdout | trim | lower) not in ['running', 'idle']
+
+- name: Wait until VM is running
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}" domstate "{{ sno_build_vm_fqdn }}"
+  delegate_to: localhost
+  register: _domstate
+  retries: 60
+  delay: 5
+  until: (_domstate.stdout | trim | lower) in ['running', 'idle']
+  changed_when: false
+  failed_when: false

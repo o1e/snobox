@@ -1,0 +1,21 @@
+---
+- name: Build Provision snobox VM
+  hosts: snobox
+  gather_facts: false
+  tags:
+    - sno_build
+  tasks:
+    - name: Run sno_build role
+      ansible.builtin.import_role:
+        name: sno_build
+      vars:
+        sno_build_workdir: "{{ sno_workdir }}"
+        sno_build_workdirs: "{{ sno_workdirs }}"
+        sno_build_libvirt_uri: "{{ sno_libvirt_uri }}"
+        sno_build_box: "{{ sno_box }}"
+        sno_build_net: "{{ sno_net }}"
+        sno_build_dns: "{{ sno_dns }}"
+        sno_build_kvm_host: "{{ sno_kvm_host }}"
+        sno_build_storage: "{{ sno_storage }}"
+      tags:
+        - sno_build

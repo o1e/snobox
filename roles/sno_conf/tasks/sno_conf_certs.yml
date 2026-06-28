@@ -1,0 +1,114 @@
+---
+# roles/sno_conf/tasks/sno_conf_certs.yml
+# Custom wildcard cert for *.apps.<cluster>.<base_domain>
+# Only applied if both cert + key files exist locally
+
+# ---------------------------------------------------------
+# Check if TLS files are present on controller
+# ---------------------------------------------------------
+
+- name: Check apps TLS cert file exists
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ sno_conf_tls.crt_apps | default('') }}"
+  register: _apps_tls_crt
+  changed_when: false
+  when: sno_conf_tls.crt_apps is defined
+
+- name: Check apps TLS key file exists
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ sno_conf_tls.key_apps | default('') }}"
+  register: _apps_tls_key
+  changed_when: false
+  when: sno_conf_tls.key_apps is defined
+
+- name: Decide whether to deploy custom apps certificate
+  delegate_to: localhost
+  ansible.builtin.set_fact:
+    _deploy_apps_tls: >-
+      {{
+        (sno_conf_tls.crt_apps is defined and sno_conf_tls.key_apps is defined)
+        and
+        (_apps_tls_crt.stat.exists | default(false))
+        and
+        (_apps_tls_key.stat.exists | default(false))
+      }}
+  changed_when: false
+
+- name: Skip custom apps TLS deployment (files missing)
+  ansible.builtin.debug:
+    msg: "Skipping custom apps TLS deployment (cert/key not present)."
+  when: not _deploy_apps_tls
+  changed_when: false
+
+# ---------------------------------------------------------
+# Deploy custom cert (only if files exist)
+# ---------------------------------------------------------
+
+# Start Block
+- name: Deploy custom apps TLS certificate
+  when: _deploy_apps_tls
+  block:
+    - name: Ensure openshift-ingress namespace exists
+      delegate_to: localhost
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: openshift-ingress
+
+    - name: Create/Update router TLS secret
+      delegate_to: localhost
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ sno_conf_router_tls_secret_name | default('router-certs-custom') }}"
+            namespace: openshift-ingress
+          type: kubernetes.io/tls
+          stringData:
+            tls.crt: "{{ lookup('file', sno_conf_tls.crt_apps) | regex_replace('\\s*$', '\n') }}"
+            tls.key: "{{ lookup('file', sno_conf_tls.key_apps) | regex_replace('\\s*$', '\n') }}"
+
+    - name: Patch default IngressController defaultCertificate
+      delegate_to: localhost
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operator.openshift.io/v1
+          kind: IngressController
+          metadata:
+            name: default
+            namespace: openshift-ingress-operator
+          spec:
+            defaultCertificate:
+              name: "{{ sno_conf_router_tls_secret_name | default('router-certs-custom') }}"
+
+    - name: Wait for router rollout
+      delegate_to: localhost
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: router-default
+        namespace: openshift-ingress
+      register: _router_dep
+      retries: 60
+      delay: 10
+      until:
+        - _router_dep is defined
+        - _router_dep.resources is defined
+        - (_router_dep.resources | length) == 1
+        - >
+          (
+            (_router_dep.resources[0].status.availableReplicas | default(0)) | int
+            >=
+            (_router_dep.resources[0].spec.replicas | default(1)) | int
+          )
+      changed_when: false
+
+# End Block

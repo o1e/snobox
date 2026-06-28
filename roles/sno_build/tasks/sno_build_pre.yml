@@ -1,0 +1,84 @@
+---
+- name: Validate DNS input
+  ansible.builtin.assert:
+    that:
+      - sno_build_dns is mapping
+      - sno_build_dns.mode is defined
+      - sno_build_dns.mode in ['local', 'public_wildcard']
+      - sno_build_dns.base_domain is defined
+      - sno_build_dns.base_domain | length > 0
+      - sno_build_dns.base_domain == (sno_build_dns.base_domain | trim)
+      - "' ' not in sno_build_dns.base_domain"
+      - sno_build_dns.cluster_domain is defined
+      - sno_build_dns.cluster_domain | length > 0
+      - sno_build_dns.cluster_domain == (sno_build_dns.cluster_domain | trim)
+      - "' ' not in sno_build_dns.cluster_domain"
+      - sno_build_dns.node_fqdn is defined
+      - sno_build_dns.node_fqdn | length > 0
+      - sno_build_dns.node_fqdn == (sno_build_dns.node_fqdn | trim)
+      - "' ' not in sno_build_dns.node_fqdn"
+    fail_msg: >-
+      sno_build: missing resolved DNS input.
+      Expected dns_mode local or public_wildcard and whitespace-free
+      sno_build_dns.base_domain/cluster_domain/node_fqdn.
+
+- name: Validate network mode input
+  ansible.builtin.assert:
+    that:
+      - sno_build_net.type in ['bridge', 'nat']
+    fail_msg: >-
+      Unsupported sno_net.type={{ sno_build_net.type }} (allowed: bridge, nat)
+
+- name: Validate storage layout
+  ansible.builtin.assert:
+    that:
+      - sno_build_storage is mapping
+      - sno_build_storage.pool_name is defined
+      - sno_build_storage.pool_name | length > 0
+      - sno_build_storage.disk_defaults is mapping
+      - sno_build_storage.disk_defaults.unit is defined
+      - sno_build_storage.disk_defaults.unit | length > 0
+      - sno_build_storage.disk_defaults.format is defined
+      - sno_build_storage.disk_defaults.format | length > 0
+      - sno_build_storage.disk_defaults.bus is defined
+      - sno_build_storage.disk_defaults.bus | length > 0
+      - sno_build_storage.system_disk is mapping
+      - sno_build_storage.system_disk.name_suffix is defined
+      - sno_build_storage.system_disk.name_suffix | length > 0
+      - sno_build_storage.system_disk.size is defined
+      - sno_build_storage.system_disk.size | int > 0
+      - sno_build_storage.data_disks | default([]) is sequence
+      - >
+        (sno_build_storage.data_disks | default([]) | selectattr('name_suffix', 'defined') | list | length)
+        ==
+        (sno_build_storage.data_disks | default([]) | length)
+      - >
+        (sno_build_storage.data_disks | default([]) | map(attribute='name_suffix') | map('trim') | reject('equalto', '') | list | length)
+        ==
+        (sno_build_storage.data_disks | default([]) | length)
+      - >
+        (sno_build_storage.data_disks | default([]) | selectattr('size', 'defined') | list | length)
+        ==
+        (sno_build_storage.data_disks | default([]) | length)
+      - >
+        (sno_build_storage.data_disks | default([]) | map(attribute='size') | map('int') | select('gt', 0) | list | length)
+        ==
+        (sno_build_storage.data_disks | default([]) | length)
+    fail_msg: >-
+      sno_build_storage must define pool_name, disk_defaults, a positive
+      system_disk size/name_suffix, and data_disks with non-empty name_suffix
+      values and positive sizes.
+
+- name: Assert disk suffixes are unique
+  ansible.builtin.assert:
+    that:
+      - >
+        (
+          (sno_build_storage.data_disks | default([]) | map(attribute='name_suffix') | list)
+          + [sno_build_storage.system_disk.name_suffix]
+        ) | unique | length
+        ==
+        ((sno_build_storage.data_disks | default([]) | length) + 1)
+    fail_msg: >-
+      Duplicate disk name_suffix values found across
+      sno_build_storage.system_disk and sno_build_storage.data_disks.

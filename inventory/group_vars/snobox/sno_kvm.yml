@@ -1,0 +1,42 @@
+---
+# libvirt connection URI used by snobox to manage VMs on the KVM host.
+# Built dynamically from KVM host inventory data (user + host).
+# Must work from inside the execution environment.
+# Authentication is expected to come from normal SSH configuration or an
+# ssh-agent made available to the execution environment. The URI deliberately
+# does not embed an SSH key path.
+#
+# Format:
+#   qemu+ssh://<user>@<host>:<port>/system?no_verify=1
+#
+# Explanation:
+# - qemu+ssh        → Connect to libvirt over SSH (remote hypervisor access)
+# - <user>          → provisioning user on the KVM host
+#                     (hostvars[sno_kvm_host].ansible_user)
+# - <host>          → KVM host address (ansible_host or inventory hostname)
+# - <port>          → SSH port (default 22)
+# - /system         → Connect to the system-wide libvirt daemon (required for
+#                     managing VMs, networks and storage pools)
+# - no_verify=1     → Disable SSH host key verification (useful in containerized
+#                     Execution Environments; remove for stricter security)
+#
+# IMPORTANT:
+# The SSH user must:
+# - Have SSH key-based access to the KVM host via ssh-agent or SSH config
+# - Be a member of the 'libvirt' and 'kvm' groups
+#   (required for access to qemu:///system)
+# - Be allowed to manage domains, networks and storage volumes through
+#   qemu:///system without sudo
+# - Only be granted in lab environments where direct libvirt access is acceptable
+#
+# Test manually on the controller (EE):
+#   ssh <user>@<kvm_host> true
+#   virsh -c qemu+ssh://<user>@<kvm_host>/system?no_verify=1 list
+#
+# If this works without sudo, snobox will be able to manage VMs.
+
+sno_libvirt_uri: >-
+  qemu+ssh://{{
+  hostvars[sno_kvm_host].ansible_user }}@{{
+  hostvars[sno_kvm_host].ansible_host | default(sno_kvm_host) }}:{{
+  hostvars[sno_kvm_host].ansible_port | default(22) }}/system?no_verify=1

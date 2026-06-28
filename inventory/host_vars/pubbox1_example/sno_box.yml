@@ -1,0 +1,38 @@
+---
+sno_box:
+  # Hostname inside the VM (must match DNS records)
+  hostname: pubbox1
+
+  # OpenShift cluster name (used for FQDN construction)
+  clustername: pubbox
+
+  # Base DNS domain.
+  # Required for dns_mode: local, where it is used as-is for
+  # api.<clustername>.<base_domain>, api-int.<clustername>.<base_domain>
+  # and *.apps.<clustername>.<base_domain>.
+  #
+  # With dns_mode: public_wildcard, the effective base domain is generated
+  # from the node IP and wildcard DNS provider (for example sslip.io), so
+  # this value is not used for OpenShift DNS names.
+  base_domain: example.org
+
+  # Choose between okd or ocp
+  #
+  # Note:
+  #   LVMS is currently only available with OCP.
+  #   OKD deployments must not rely on LVMS.
+  distribution: "okd"
+  ocp:
+    # OpenShift release or update channel
+    # Examples: 4.18.2, stable-4.18, stable, candidate-4.18
+    version: stable-4.21
+  okd:
+    # See https://github.com/okd-project/okd/releases
+    # Examples: 4.22.0-okd-scos.ec.9, 5.0.0-okd-scos.ec.0
+    version: "5.0.0-okd-scos.ec.0"
+  specs:
+    # vCPU count for SNO VM
+    vcpu: 8
+
+    # Memory in MiB
+    mem: 24288

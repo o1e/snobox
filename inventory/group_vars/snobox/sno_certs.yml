@@ -1,0 +1,7 @@
+---
+# Custom wildcard TLS certificate (*.apps.<cluster>.<base_domain>)
+# Used for ingress if files exist locally.
+
+sno_tls:
+  crt_apps: "{{ sno_repo_root }}/files/certs/apps.{{ sno_box.clustername }}.{{ sno_box.base_domain }}/cert.pem"
+  key_apps: "{{ sno_repo_root }}/files/certs/apps.{{ sno_box.clustername }}.{{ sno_box.base_domain }}/privkey.pem"

@@ -1,0 +1,68 @@
+---
+sno_net:
+  # DNS strategy:
+  # - local           : use sno_box.base_domain and local DNS records
+  # - public_wildcard : use wildcard DNS provider (e.g. sslip.io) and derive
+  #                     the effective base domain from the node IP
+  dns_mode: local
+
+  # Supported modes: bridge or nat
+  type: bridge
+
+  # Deterministic MAC used for DHCP reservations and reproducible networking
+  #
+  # Format:
+  #   de:ad:be:ef:<NN>:<HH>
+  #
+  #   NN = network identifier
+  #        02 = bridge/LAN 192.168.2.x
+  #        64 = libvirt NAT 192.168.100.x
+  #
+  #   HH = last VM IP octet in hexadecimal
+  #
+  # Examples:
+  #   192.168.2.116   -> de:ad:be:ef:02:74
+  #   192.168.100.10 -> de:ad:be:ef:64:0a
+  #
+  mac: "de:ad:be:ef:02:74"
+
+  # bridge example: Enable by setting type: bridge
+  bridge:
+    # Existing bridge device on the KVM host
+    virt_dev: br0
+    # CIDR of the network where the SNO node IP resides.
+    # This must match the subnet of specs.static.ip or specs.dhcp.reserved_ip.
+    # Used for OpenShift install-config.yaml -> networking.machineNetwork.
+    cidr: 192.168.2.0/24
+    # dhcp or static
+    mode: static
+    specs:
+      # Static VM address on the bridged LAN
+      static:
+        ip: 192.168.2.116
+        prefix: 24
+        gw: 192.168.2.1
+        dns:
+          - 192.168.2.1
+
+      # DHCP VM address on the bridged LAN.
+      #
+      # dns_mode: public_wildcard requires a stable DHCP reservation IP.
+      # dns_mode: local does not require additional DHCP settings.
+      dhcp:
+        reserved_ip: 192.168.2.116
+
+  # nat example: Enable by setting type: nat
+  nat:
+    # Libvirt NAT network name (max 15 chars)
+    network: snobox-net
+    # Static guest IP inside the NAT network
+    ip: 192.168.100.10
+    # CIDR of the SNO node IP network (must match nat.ip subnet)
+    cidr: 192.168.100.0/24
+    # Only required if the NAT network is created by automation
+    create_net: true
+    gateway: 192.168.100.1
+    netmask: 255.255.255.0
+    dhcp_start: 192.168.100.50
+    dhcp_end: 192.168.100.200

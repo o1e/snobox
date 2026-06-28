@@ -1,0 +1,37 @@
+---
+- name: Validate input and preconditions
+  ansible.builtin.import_tasks: sno_build_pre.yml
+  tags:
+    - sno_build_pre
+    - sno_build_chk_net
+    - sno_build_vm
+    - sno_build_ocp_inst
+
+- name: Validate bridge networking
+  ansible.builtin.import_tasks: sno_build_chk_net_bridge.yml
+  when: sno_build_net.type == 'bridge'
+  tags:
+    - sno_build_pre
+    - sno_build_chk_net
+
+- name: Validate NAT networking
+  ansible.builtin.import_tasks: sno_build_chk_net_nat.yml
+  when: sno_build_net.type == 'nat'
+  tags:
+    - sno_build_pre
+    - sno_build_chk_net
+
+- name: Upload installer ISO volume
+  ansible.builtin.import_tasks: sno_build_iso.yml
+  tags:
+    - sno_build_iso
+
+- name: Create VM
+  ansible.builtin.import_tasks: sno_build_vm.yml
+  tags:
+    - sno_build_vm
+
+- name: Install OpenShift
+  ansible.builtin.import_tasks: sno_build_ocp_inst.yml
+  tags:
+    - sno_build_ocp_inst

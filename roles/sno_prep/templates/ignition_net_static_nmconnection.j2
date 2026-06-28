@@ -1,0 +1,22 @@
+[connection]
+id={{ sno_prep_box.hostname }}
+type=ethernet
+autoconnect=true
+interface-name=ens3
+hostname={{ sno_prep_dns.node_fqdn }}
+
+[ethernet]
+mac-address={{ sno_net.mac }}
+
+[ipv4]
+method=manual
+addresses={{ sno_net.bridge.specs.static.ip }}/{{ sno_net.bridge.specs.static.prefix | default((sno_net.bridge.cidr | ansible.utils.ipaddr('prefix'))) }}
+gateway={{ sno_net.bridge.specs.static.gw }}
+{% if sno_net.bridge.specs.static.dns is defined %}
+dns={{ sno_net.bridge.specs.static.dns | join(';') }};
+{% else %}
+dns={{ sno_net.bridge.specs.static.gw }};
+{% endif %}
+
+[ipv6]
+method=disabled

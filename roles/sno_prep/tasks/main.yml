@@ -1,0 +1,31 @@
+---
+# Dispatcher for sno_prep
+
+- name: Import sno_prep_pre
+  ansible.builtin.import_tasks: sno_prep_pre.yml
+  tags:
+    - sno_prep_pre
+    - sno_prep_workdir
+    - sno_prep_ssh
+    - sno_prep_dl
+    - sno_prep_gen_ignition
+
+- name: Import sno_prep_workdir
+  ansible.builtin.import_tasks: sno_prep_workdir.yml
+  tags:
+    - sno_prep_workdir
+
+- name: Import sno_prep_ssh
+  ansible.builtin.import_tasks: sno_prep_ssh.yml
+  tags:
+    - sno_prep_ssh
+
+- name: Import sno_prep_dl
+  ansible.builtin.import_tasks: sno_prep_dl.yml
+  tags:
+    - sno_prep_dl
+
+- name: Import sno_prep_ignition
+  ansible.builtin.import_tasks: sno_prep_gen_ignition.yml
+  tags:
+    - sno_prep_gen_ignition

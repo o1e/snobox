@@ -1,0 +1,28 @@
+---
+# Default storage layout for SNO VMs
+
+sno_storage:
+  # libvirt storage pool name
+  pool_name: default
+
+  # Defaults applied to all disks
+  disk_defaults:
+    unit: GB
+    format: qcow2
+    bus: virtio
+
+  # Installer ISO libvirt volume settings
+  iso:
+    format: raw
+
+  # System/root disk
+  system_disk:
+    size: 120
+    name_suffix: os1
+
+  # Additional data disks (e.g. for LVMS)
+  data_disks:
+    - name_suffix: localstorage1-1
+      size: 15
+    - name_suffix: lvms1-1
+      size: 100

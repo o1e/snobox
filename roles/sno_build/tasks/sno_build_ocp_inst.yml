@@ -1,0 +1,12 @@
+---
+- name: Wait for SNO installation to complete (with timeout)
+  ansible.builtin.command: >
+    {{ sno_build_workdirs.bin }}/openshift-install
+    --dir={{ sno_build_workdirs.ocp }}
+    wait-for install-complete
+  register: _sno_install_complete
+  retries: 60
+  delay: 60
+  until: _sno_install_complete.rc == 0
+  changed_when: false
+  delegate_to: localhost

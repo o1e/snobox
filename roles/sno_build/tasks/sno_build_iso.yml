@@ -1,0 +1,56 @@
+---
+- name: Stat local installer ISO
+  ansible.builtin.stat:
+    path: >-
+      {{ sno_build_workdirs.downloads_rhcos }}/{{ sno_build_live_iso_file }}
+  register: _sno_build_iso_stat
+  delegate_to: localhost
+
+- name: Fail if local installer ISO is missing
+  ansible.builtin.fail:
+    msg: >-
+      Missing local installer ISO:
+      {{ sno_build_workdirs.downloads_rhcos }}/{{ sno_build_live_iso_file }}
+  when: not _sno_build_iso_stat.stat.exists
+
+- name: Set installer ISO volume facts
+  ansible.builtin.set_fact:
+    _sno_build_iso_capacity: >-
+      {{
+        ((_sno_build_iso_stat.stat.size | int / 1048576)
+        | round(0, 'ceil') | int) + 1
+      }}M
+
+- name: Check installer ISO volume
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}"
+    vol-info
+    --pool "{{ sno_build_storage.pool_name }}"
+    "{{ sno_build_live_iso_file }}"
+  register: _sno_build_iso_volinfo
+  failed_when: false
+  changed_when: false
+  delegate_to: localhost
+
+- name: Create installer ISO volume
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}"
+    vol-create-as
+    --pool "{{ sno_build_storage.pool_name }}"
+    --name "{{ sno_build_live_iso_file }}"
+    --capacity "{{ _sno_build_iso_capacity }}"
+    --format "{{ sno_build_storage.iso.format | default('raw') }}"
+  when: _sno_build_iso_volinfo.rc != 0
+  changed_when: true
+  delegate_to: localhost
+
+- name: Upload installer ISO volume
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}"
+    vol-upload
+    --pool "{{ sno_build_storage.pool_name }}"
+    "{{ sno_build_live_iso_file }}"
+    "{{ sno_build_workdirs.downloads_rhcos }}/{{ sno_build_live_iso_file }}"
+  when: _sno_build_iso_volinfo.rc != 0
+  changed_when: true
+  delegate_to: localhost

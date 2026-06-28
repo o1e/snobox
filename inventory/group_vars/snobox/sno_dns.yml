@@ -1,0 +1,108 @@
+---
+# Shared DNS logic and computed runtime DNS values
+# sslip.io and nip.io expect dash-separated IPv4 octets
+sno_dns_defaults:
+  provider: sslip.io
+  separator: "-"
+
+sno_dns:
+  # DNS operating mode
+  #
+  # local:
+  #   Use sno_box.base_domain as configured.
+  #
+  # public_wildcard:
+  #   Build base domain dynamically from the node IP,
+  #   e.g. 192-168-2-116.sslip.io
+  #
+  mode: "{{ sno_net.dns_mode | default('public_wildcard') }}"
+
+  provider: "{{ sno_dns_defaults.provider }}"
+  separator: "{{ sno_dns_defaults.separator }}"
+
+  # Target node IP used for api/api-int/*.apps resolution
+  #
+  # public_wildcard requires a stable known IP:
+  # - static IP
+  # - or DHCP reservation
+  #
+  # bridge/static -> specs.static.ip
+  # bridge/dhcp   -> specs.dhcp.reserved_ip
+  # nat           -> nat.ip
+  node_ip: >-
+    {{
+      sno_net.bridge.specs.static.ip
+      if sno_net.type == 'bridge' and sno_net.bridge.mode == 'static'
+      else
+      sno_net.bridge.specs.dhcp.reserved_ip
+      if sno_net.type == 'bridge' and sno_net.bridge.mode == 'dhcp'
+         and sno_net.bridge.specs.dhcp.reserved_ip is defined
+      else
+      sno_net.nat.ip
+      if sno_net.type == 'nat'
+      else
+      ''
+    }}
+
+  encoded_ip: >-
+    {{
+      sno_dns.node_ip
+      | replace('.', sno_dns.separator)
+    }}
+
+  # Effective base domain used by OpenShift
+  #
+  # local:
+  #   example.org
+  #
+  # public_wildcard:
+  #   192-168-2-116.sslip.io
+  #
+  base_domain: >-
+    {{
+      sno_dns.encoded_ip ~ '.' ~ sno_dns.provider
+      if sno_dns.mode == 'public_wildcard'
+      else sno_box.base_domain
+    }}
+
+  # Derived OpenShift DNS values
+
+  cluster_domain: >-
+    {{
+      sno_box.clustername ~ '.' ~ sno_dns.base_domain
+    }}
+
+  node_fqdn: >-
+    {{
+      sno_box.hostname ~ '.' ~ sno_dns.cluster_domain
+    }}
+
+  api_fqdn: >-
+    {{
+      'api.' ~ sno_dns.cluster_domain
+    }}
+
+  api_int_fqdn: >-
+    {{
+      'api-int.' ~ sno_dns.cluster_domain
+    }}
+
+  apps_domain: >-
+    {{
+      'apps.' ~ sno_dns.cluster_domain
+    }}
+
+  apps_wildcard: >-
+    {{
+      '*.' ~ sno_dns.apps_domain
+    }}
+
+  console_fqdn: >-
+    {{
+      'console-openshift-console.' ~ sno_dns.apps_domain
+    }}
+
+  oauth_fqdn: >-
+    {{
+      'oauth-openshift.' ~ sno_dns.apps_domain
+    }}

@@ -1,0 +1,169 @@
+---
+# ---------------------------------------------------------
+# LVMS storage configuration
+# ---------------------------------------------------------
+#
+# This task file assumes it is only included when:
+#
+#   - sno_conf_lvms.enabled == true
+#   - sno_conf_box.distribution == "ocp"
+#
+# The role main.yml is responsible for that gating.
+#
+# Disk model:
+#
+#   sno_storage.data_disks
+#     Defines which additional virtual disks are attached to the VM.
+#
+#   sno_conf_lvms.disks.name_suffixes
+#     Selects which of those attached disks LVMS is allowed to use.
+#
+# Example:
+#
+#   sno_storage:
+#     data_disks:
+#       - name_suffix: lvms1-1
+#         size: 200
+#       - name_suffix: lvms1-2
+#         size: 200
+#       - name_suffix: localstorage1-1
+#         size: 200
+#
+#   sno_lvms:
+#     enabled: true
+#     set_default_sc: true
+#     vg_name: vg-lvms
+#     disks:
+#       name_suffixes:
+#         - lvms1-1
+#         - lvms1-2
+#
+# Result:
+#
+#   LVMS uses only:
+#     /dev/disk/by-id/virtio-<clustername>-lvms1-1
+#     /dev/disk/by-id/virtio-<clustername>-lvms1-2
+#
+#   localstorage1-1 is attached to the VM, but not used by LVMS.
+#
+
+# ---------------------------------------------------------
+# Validate configuration
+# ---------------------------------------------------------
+
+- name: Validate LVMS configuration
+  ansible.builtin.assert:
+    that:
+      - sno_conf_lvms.vg_name is defined
+      - sno_conf_lvms.vg_name | length > 0
+      - sno_conf_lvms.disks.name_suffixes | default([]) | length > 0
+    fail_msg: >-
+      LVMS configuration is incomplete.
+      Required:
+        sno_lvms.vg_name
+        sno_lvms.disks.name_suffixes
+
+- name: Build known data disk name_suffix list
+  ansible.builtin.set_fact:
+    _lvms_known_data_disk_suffixes: >-
+      {{
+        sno_conf_storage.data_disks
+        | default([])
+        | map(attribute='name_suffix')
+        | list
+      }}
+  changed_when: false
+
+- name: Build selected LVMS disk name_suffix list
+  ansible.builtin.set_fact:
+    _lvms_selected_disk_suffixes: >-
+      {{
+        sno_conf_lvms.disks.name_suffixes
+        | default([])
+        | list
+      }}
+  changed_when: false
+
+- name: Validate selected LVMS disks exist in data_disks
+  ansible.builtin.assert:
+    that:
+      - _lvms_selected_disk_suffixes | difference(_lvms_known_data_disk_suffixes) | length == 0
+    fail_msg: >-
+      LVMS references disk name_suffix values that are not defined in sno_storage.data_disks:
+      {{
+        _lvms_selected_disk_suffixes
+        | difference(_lvms_known_data_disk_suffixes)
+      }}
+    success_msg: "Selected LVMS disks are defined in sno_storage.data_disks."
+
+# ---------------------------------------------------------
+# LVMCluster
+# ---------------------------------------------------------
+
+- name: Build LVMS device paths from selected disk name_suffixes
+  ansible.builtin.set_fact:
+    _lvms_device_paths: >-
+      {{
+        _lvms_selected_disk_suffixes
+        | map('regex_replace', '^', '/dev/disk/by-id/virtio-' ~ sno_conf_box.clustername ~ '-')
+        | list
+      }}
+  changed_when: false
+
+- name: Show selected LVMS devices
+  ansible.builtin.debug:
+    msg:
+      - "LVMS volume group/deviceClass: {{ sno_conf_lvms.vg_name }}"
+      - "LVMS devices: {{ _lvms_device_paths }}"
+
+- name: Wait until LVMCluster CRD exists
+  delegate_to: localhost
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: lvmclusters.lvm.topolvm.io
+  register: _lvms_crd
+  until: _lvms_crd.resources | length > 0
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Create LVMCluster for selected LVMS data disks
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: lvm.topolvm.io/v1alpha1
+      kind: LVMCluster
+      metadata:
+        name: sno-lvmcluster
+        namespace: openshift-storage
+      spec:
+        storage:
+          deviceClasses:
+            - name: "{{ sno_conf_lvms.vg_name }}"
+              default: true
+              thinPoolConfig:
+                name: "{{ sno_conf_lvms.thin_pool_name | default('thin-pool-1') }}"
+                sizePercent: "{{ sno_conf_lvms.thin_pool_size_percent | default(90) }}"
+                overprovisionRatio: "{{ sno_conf_lvms.overprovision_ratio | default(5) }}"
+              deviceSelector:
+                paths: "{{ _lvms_device_paths }}"
+
+# ---------------------------------------------------------
+# Ensure StorageClass default
+# ---------------------------------------------------------
+
+- name: Ensure LVMS StorageClass is default
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: patched
+    definition:
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: "lvms-{{ sno_conf_lvms.vg_name }}"
+        annotations:
+          storageclass.kubernetes.io/is-default-class: "true"
+  when:
+    - sno_conf_lvms.set_default_sc | default(true) | bool

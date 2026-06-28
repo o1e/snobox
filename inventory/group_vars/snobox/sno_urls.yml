@@ -1,0 +1,19 @@
+---
+# Download sources for OpenShift and CoreOS tools/images
+
+sno_urls:
+  ocp:
+    # Base URL for OpenShift release artifacts
+    inst_base_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ sno_box.ocp.version }}"
+    # Installer archive filename
+    inst_bin: "openshift-install-linux.tar.gz"
+    # oc client archive filename
+    oc_client_bin: "openshift-client-linux.tar.gz"
+  okd:
+    inst_base_url: "https://github.com/okd-project/okd/releases/download/{{ sno_box.okd.version }}"
+    inst_bin: "openshift-install-linux-{{ sno_box.okd.version }}.tar.gz"
+    oc_client_bin: "openshift-client-linux-{{ sno_box.okd.version }}.tar.gz"
+  coreos:
+    # CoreOS installer location (always latest)
+    inst_base_url: "https://mirror.openshift.com/pub/openshift-v4/clients/coreos-installer/latest"
+    inst_bin: "coreos-installer"

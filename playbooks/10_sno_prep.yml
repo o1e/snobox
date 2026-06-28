@@ -1,0 +1,22 @@
+---
+- name: Prepare SNObox (workdir, ssh keys, downloads)
+  hosts: snobox
+  gather_facts: false
+  tags:
+    - sno_prep
+
+  tasks:
+    - name: Run sno_prep role
+      ansible.builtin.import_role:
+        name: sno_prep
+      vars:
+        sno_prep_urls: "{{ sno_urls }}"
+        sno_prep_pullsecret_path: "{{ sno_pullsecret_path }}"
+        sno_prep_ocp_net: "{{ sno_ocp_net }}"
+        sno_prep_workdir: "{{ sno_workdir }}"
+        sno_prep_workdirs: "{{ sno_workdirs }}"
+        sno_prep_box: "{{ sno_box }}"
+        sno_prep_net: "{{ sno_net }}"
+        sno_prep_dns: "{{ sno_dns }}"
+      tags:
+        - sno_prep

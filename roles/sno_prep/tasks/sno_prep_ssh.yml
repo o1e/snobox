@@ -1,0 +1,21 @@
+---
+- name: Generate SSH keypair for RHCOS access (idempotent)
+  community.crypto.openssh_keypair:
+    path: "{{ sno_prep_workdirs.ssh }}/id_{{ sno_prep_box.hostname }}"
+    type: ed25519
+    comment: "{{ sno_prep_box.hostname }}.{{ sno_prep_box.clustername }}"
+    mode: "0600"
+    force: false
+  register: _ssh_key
+  delegate_to: localhost
+
+- name: Expose public key as fact for later steps
+  ansible.builtin.set_fact:
+    sno_prep_ssh_public_key: "{{ _ssh_key.public_key }}"
+
+- name: Save public key to file (safe)
+  ansible.builtin.copy:
+    dest: "{{ sno_prep_workdirs.ssh }}/id_{{ sno_prep_box.hostname }}.pub"
+    mode: "0644"
+    content: "{{ _ssh_key.public_key }}\n"
+  delegate_to: localhost

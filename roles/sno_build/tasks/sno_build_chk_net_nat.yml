@@ -1,0 +1,168 @@
+---
+# ---------------------------------------------------------
+# Validate NAT input
+# ---------------------------------------------------------
+
+- name: Validate NAT IP config
+  ansible.builtin.assert:
+    that:
+      - sno_build_net.nat.ip is defined
+      - sno_build_net.nat.cidr is defined
+      - sno_build_net.nat.gateway is defined
+      - sno_build_net.nat.netmask is defined
+    fail_msg: "sno_net.nat requires ip, cidr, gateway and netmask"
+
+- name: Validate nat.network is set
+  ansible.builtin.assert:
+    that:
+      - sno_build_net.nat is defined
+      - sno_build_net.nat.network is defined
+      - (sno_build_net.nat.network | length) > 0
+    fail_msg: "sno_net.nat.network must be set when sno_net.type == 'nat'"
+
+# ---------------------------------------------------------
+# Validate / create libvirt NAT network
+# ---------------------------------------------------------
+- name: Check if libvirt NAT network exists
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}" net-info "{{ sno_build_net.nat.network }}"
+  delegate_to: localhost
+  register: _nat_net_info
+  failed_when: false
+  changed_when: false
+
+- name: Abort if libvirt NAT network state cannot be queried
+  ansible.builtin.fail:
+    msg: >-
+      Failed to query libvirt network '{{ sno_build_net.nat.network }}'.
+      Check sno_libvirt_uri, SSH access to the KVM provisioning user and
+      libvirt permissions. virsh stderr: {{ _nat_net_info.stderr }}
+  when:
+    - _nat_net_info.rc != 0
+    - "'network not found' not in (_nat_net_info.stderr | lower)"
+    - "'failed to get network' not in (_nat_net_info.stderr | lower)"
+
+- name: Render libvirt NAT network XML
+  ansible.builtin.template:
+    src: libvirt_net_nat.xml.j2
+    dest: "{{ sno_build_workdir }}/{{ sno_build_net.nat.network }}.xml"
+    mode: "0644"
+  delegate_to: localhost
+  when:
+    - _nat_net_info.rc != 0
+    - (sno_build_net.nat.create_net | default(false)) | bool
+
+- name: Define libvirt NAT network
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}" net-define "{{ sno_build_workdir }}/{{ sno_build_net.nat.network }}.xml"
+  delegate_to: localhost
+  changed_when: true
+  when:
+    - _nat_net_info.rc != 0
+    - (sno_build_net.nat.create_net | default(false)) | bool
+
+- name: Start libvirt NAT network
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}" net-start "{{ sno_build_net.nat.network }}"
+  delegate_to: localhost
+  changed_when: true
+  when:
+    - _nat_net_info.rc != 0
+    - (sno_build_net.nat.create_net | default(false)) | bool
+
+- name: Autostart libvirt NAT network
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}" net-autostart "{{ sno_build_net.nat.network }}"
+  delegate_to: localhost
+  changed_when: true
+  when:
+    - _nat_net_info.rc != 0
+    - (sno_build_net.nat.create_net | default(false)) | bool
+
+- name: Abort if libvirt NAT network is missing and auto-create is disabled
+  ansible.builtin.fail:
+    msg: >-
+      libvirt network '{{ sno_build_net.nat.network }}' not found.
+      Either create it on the KVM host, or set sno_net.nat.create_net=true
+      and provide NAT gateway/netmask/DHCP range.
+  when:
+    - _nat_net_info.rc != 0
+    - not ((sno_build_net.nat.create_net | default(false)) | bool)
+
+# ---------------------------------------------------------
+# NAT DHCP reservation
+# ---------------------------------------------------------
+
+- name: Read libvirt NAT network XML
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}"
+    net-dumpxml "{{ sno_build_net.nat.network }}"
+  delegate_to: localhost
+  register: _nat_net_xml
+  changed_when: false
+
+- name: Extract configured NAT DHCP reservations
+  ansible.builtin.set_fact:
+    _nat_dhcp_host_entries: "{{ _nat_net_xml.stdout | lower | regex_findall('<host\\s+[^>]*>') }}"
+    _nat_expected_mac: "{{ sno_build_net.mac | lower }}"
+    _nat_expected_ip: "{{ sno_build_net.nat.ip }}"
+  changed_when: false
+
+- name: Classify NAT DHCP reservation state
+  ansible.builtin.set_fact:
+    _nat_expected_reservations: >-
+      {{
+        _nat_dhcp_host_entries
+        | select('search', "mac=['\"]" ~ (_nat_expected_mac | regex_escape) ~ "['\"]")
+        | select('search', "ip=['\"]" ~ (_nat_expected_ip | regex_escape) ~ "['\"]")
+        | list
+      }}
+    _nat_ip_conflicts: >-
+      {{
+        _nat_dhcp_host_entries
+        | select('search', "ip=['\"]" ~ (_nat_expected_ip | regex_escape) ~ "['\"]")
+        | reject('search', "mac=['\"]" ~ (_nat_expected_mac | regex_escape) ~ "['\"]")
+        | list
+      }}
+    _nat_mac_conflicts: >-
+      {{
+        _nat_dhcp_host_entries
+        | select('search', "mac=['\"]" ~ (_nat_expected_mac | regex_escape) ~ "['\"]")
+        | reject('search', "ip=['\"]" ~ (_nat_expected_ip | regex_escape) ~ "['\"]")
+        | list
+      }}
+  changed_when: false
+
+- name: Abort if NAT IP is reserved for a different MAC
+  ansible.builtin.fail:
+    msg: >-
+      NAT IP {{ _nat_expected_ip }} is already reserved in libvirt network
+      '{{ sno_build_net.nat.network }}' for a different MAC:
+      {{ _nat_ip_conflicts }}
+  when:
+    - _nat_ip_conflicts | length > 0
+
+- name: Abort if NAT MAC is reserved for a different IP
+  ansible.builtin.fail:
+    msg: >-
+      NAT MAC {{ _nat_expected_mac }} is already reserved in libvirt network
+      '{{ sno_build_net.nat.network }}' for a different IP:
+      {{ _nat_mac_conflicts }}
+  when:
+    - _nat_mac_conflicts | length > 0
+
+- name: Add DHCP reservation for NAT IP
+  ansible.builtin.command: >
+    virsh -c "{{ sno_build_libvirt_uri }}"
+    net-update "{{ sno_build_net.nat.network }}"
+    add ip-dhcp-host
+    "<host mac='{{ sno_build_net.mac }}' name='{{ sno_build_vm_fqdn }}' ip='{{ sno_build_net.nat.ip }}' />"
+    --live --config
+  delegate_to: localhost
+  register: _nat_dhcp_add
+  changed_when: _nat_dhcp_add.rc == 0
+  failed_when: >-
+    _nat_dhcp_add.rc != 0 and
+    'existing dhcp host entry' not in (_nat_dhcp_add.stderr | lower)
+  when:
+    - _nat_expected_reservations | length == 0

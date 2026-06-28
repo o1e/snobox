@@ -1,0 +1,289 @@
+---
+- name: Assert htpasswd configuration is present
+  ansible.builtin.assert:
+    that:
+      - sno_conf_users is defined
+      - sno_conf_users.ocp_users is defined
+      - sno_conf_users.ocp_users.secretname is defined
+      - sno_conf_users.ocp_users.userlist is defined
+      - sno_conf_users.ocp_users.userlist | length > 0
+    fail_msg: "sno_conf_users.ocp_users.secretname or userlist missing."
+  changed_when: false
+
+- name: Validate htpasswd users
+  vars:
+    _sno_conf_userlist: "{{ sno_conf_users.ocp_users.userlist }}"
+    _sno_conf_user_names: "{{ _sno_conf_userlist | map(attribute='name') | list }}"
+    _sno_conf_mapping_method: "{{ sno_conf_users.ocp_users.mapping_method | default('claim') }}"
+  ansible.builtin.assert:
+    that:
+      - sno_conf_users.ocp_users.secretname | length > 0
+      - sno_conf_users.ocp_users.provider_name | default('htpasswd') | length > 0
+      - _sno_conf_mapping_method in ['claim', 'lookup', 'generate', 'add']
+      - >
+        (_sno_conf_userlist | selectattr('name', 'defined') | list | length)
+        ==
+        (_sno_conf_userlist | length)
+      - >
+        (_sno_conf_user_names | map('trim') | reject('equalto', '') | list | length)
+        ==
+        (_sno_conf_userlist | length)
+      - (_sno_conf_user_names | unique | length) == (_sno_conf_user_names | length)
+      - >
+        (_sno_conf_userlist | selectattr('pw', 'defined') | list | length)
+        ==
+        (_sno_conf_userlist | length)
+      - >
+        (_sno_conf_userlist | map(attribute='pw') | map('trim') | reject('equalto', '') | list | length)
+        ==
+        (_sno_conf_userlist | length)
+      - >
+        (_sno_conf_userlist | selectattr('clusterrole', 'defined') | list | length)
+        ==
+        (_sno_conf_userlist | length)
+      - >
+        (_sno_conf_userlist | map(attribute='clusterrole') | map('trim') | reject('equalto', '') | list | length)
+        ==
+        (_sno_conf_userlist | length)
+    fail_msg: >-
+      sno_conf_users.ocp_users.userlist must contain unique non-empty user
+      names, non-empty passwords and non-empty clusterrole values. OAuth
+      mapping_method must be one of claim, lookup, generate or add.
+  changed_when: false
+  no_log: true
+
+# ---------------------------------------------------------
+# Build htpasswd file locally
+# ---------------------------------------------------------
+- name: Create temporary htpasswd file
+  delegate_to: localhost
+  ansible.builtin.tempfile:
+    state: file
+    suffix: ".htpasswd"
+  register: _htpasswd_tmp
+  changed_when: false
+
+- name: Ensure htpasswd file is empty
+  delegate_to: localhost
+  ansible.builtin.copy:
+    dest: "{{ _htpasswd_tmp.path }}"
+    content: ""
+    mode: "0600"
+  changed_when: false
+
+- name: Add users to htpasswd file (bcrypt)
+  delegate_to: localhost
+  ansible.builtin.command: >
+    htpasswd -Bb
+    {{ _htpasswd_tmp.path }}
+    {{ item.name }}
+    {{ item.pw }}
+  loop: "{{ sno_conf_users.ocp_users.userlist }}"
+  changed_when: false
+  no_log: true
+
+- name: Read htpasswd file content
+  delegate_to: localhost
+  ansible.builtin.slurp:
+    src: "{{ _htpasswd_tmp.path }}"
+  register: _htpasswd_slurp
+  changed_when: false
+  no_log: true
+
+- name: Decode htpasswd content
+  ansible.builtin.set_fact:
+    _htpasswd_content: "{{ _htpasswd_slurp.content | b64decode }}"
+  changed_when: false
+  no_log: true
+
+# ---------------------------------------------------------
+# Ensure openshift-config namespace exists
+# ---------------------------------------------------------
+
+- name: Ensure openshift-config namespace exists
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: openshift-config
+
+- name: Read existing htpasswd secret
+  delegate_to: localhost
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ sno_conf_users.ocp_users.secretname }}"
+    namespace: openshift-config
+  register: _htpasswd_secret
+  no_log: true
+
+- name: Decode existing htpasswd secret
+  ansible.builtin.set_fact:
+    _htpasswd_content_existing: >-
+      {{
+        _htpasswd_secret.resources[0].data.htpasswd | b64decode
+        if (
+          _htpasswd_secret.resources | length == 1 and
+          _htpasswd_secret.resources[0].data is defined and
+          _htpasswd_secret.resources[0].data.htpasswd is defined
+        )
+        else ''
+      }}
+  changed_when: false
+  no_log: true
+
+- name: Write existing htpasswd content to temporary file
+  delegate_to: localhost
+  ansible.builtin.copy:
+    dest: "{{ _htpasswd_tmp.path }}"
+    content: "{{ _htpasswd_content_existing }}"
+    mode: "0600"
+  when: _htpasswd_content_existing | length > 0
+  changed_when: false
+  no_log: true
+
+- name: Validate desired users against existing htpasswd content
+  delegate_to: localhost
+  ansible.builtin.command: >
+    htpasswd -vb
+    {{ _htpasswd_tmp.path }}
+    {{ item.name }}
+    {{ item.pw }}
+  loop: "{{ sno_conf_users.ocp_users.userlist }}"
+  register: _htpasswd_verify
+  when: _htpasswd_content_existing | length > 0
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Decide whether to reuse existing htpasswd content
+  vars:
+    _desired_user_names: "{{ sno_conf_users.ocp_users.userlist | map(attribute='name') | sort | list }}"
+    _existing_user_names: >-
+      {{
+        _htpasswd_content_existing.splitlines()
+        | map('regex_replace', ':.*$', '')
+        | reject('equalto', '')
+        | sort
+        | list
+      }}
+    _verified_user_count: >-
+      {{
+        (
+          _htpasswd_verify.results
+          | default([])
+          | selectattr('rc', 'defined')
+          | selectattr('rc', 'equalto', 0)
+          | list
+          | length
+        )
+      }}
+  ansible.builtin.set_fact:
+    _htpasswd_reuse_existing: >-
+      {{
+        (_htpasswd_content_existing | length > 0) and
+        (_existing_user_names == _desired_user_names) and
+        (_verified_user_count | int == sno_conf_users.ocp_users.userlist | length)
+      }}
+  changed_when: false
+  no_log: true
+
+# ---------------------------------------------------------
+# Create / Update htpasswd secret
+# ---------------------------------------------------------
+
+- name: Create or update htpasswd secret
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ sno_conf_users.ocp_users.secretname }}"
+        namespace: openshift-config
+      type: Opaque
+      stringData:
+        htpasswd: >-
+          {{
+            _htpasswd_content_existing
+            if _htpasswd_reuse_existing | default(false) | bool
+            else _htpasswd_content
+          }}
+  no_log: true
+
+# ---------------------------------------------------------
+# Configure OAuth to use HTPasswd (overwrite identityProviders)
+# ---------------------------------------------------------
+
+- name: Configure OAuth cluster identityProviders (overwrite mode)
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: OAuth
+      metadata:
+        name: cluster
+      spec:
+        identityProviders:
+          - name: "{{ sno_conf_users.ocp_users.provider_name | default('htpasswd') }}"
+            mappingMethod: "{{ sno_conf_users.ocp_users.mapping_method | default('claim') }}"
+            type: HTPasswd
+            htpasswd:
+              fileData:
+                name: "{{ sno_conf_users.ocp_users.secretname }}"
+
+# ---------------------------------------------------------
+# Wait until OAuth object is readable
+# ---------------------------------------------------------
+
+- name: Wait until OAuth object is accessible
+  delegate_to: localhost
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: OAuth
+    name: cluster
+  register: _oauth_check
+  until: _oauth_check.resources | length == 1
+  retries: 10
+  delay: 6
+  changed_when: false
+
+# ---------------------------------------------------------
+# Create ClusterRoleBindings for each user
+# ---------------------------------------------------------
+
+- name: Ensure ClusterRoleBindings exist for configured users
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "snobox-htpasswd-{{ item.name }}-{{ item.clusterrole }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: "{{ item.clusterrole }}"
+      subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: User
+          name: "{{ item.name }}"
+  loop: "{{ sno_conf_users.ocp_users.userlist }}"
+
+# ---------------------------------------------------------
+# Cleanup temporary file
+# ---------------------------------------------------------
+
+- name: Remove temporary htpasswd file
+  delegate_to: localhost
+  ansible.builtin.file:
+    path: "{{ _htpasswd_tmp.path }}"
+    state: absent
+  when: _htpasswd_tmp is defined and _htpasswd_tmp.path is defined
+  changed_when: false

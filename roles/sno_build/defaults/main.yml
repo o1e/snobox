@@ -1,0 +1,6 @@
+# Role-local inputs injected from inventory via playbooks/20_sno_build.yml.
+sno_build_dns: {}
+
+sno_build_vm_fqdn: "{{ sno_build_dns.node_fqdn }}"
+
+sno_build_live_iso_file: "rhcos-live.x86_64.{{ sno_build_box.clustername }}.{{ sno_build_dns.base_domain }}.iso"

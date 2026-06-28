@@ -1,0 +1,24 @@
+---
+sno_conf_box: {}
+sno_conf_dns: {}
+
+sno_conf_operatorhub:
+  # OKD examples do not ship Red Hat registry credentials, so the default
+  # CatalogSources otherwise stay in ImagePullBackOff against registry.redhat.io.
+  disable_default_sources_for_okd: true
+
+sno_conf_users:
+  ocp_users:
+    secretname: htpass-secret
+    provider_name: htpasswd
+    mapping_method: claim
+    userlist: []
+      # - name: admin
+      #   pw: ChangeMe
+      #   clusterrole: cluster-admin
+      # - name: cluster-status
+      #   pw: ChangeMe
+      #   clusterrole: cluster-status
+      # - name: developer
+      #   pw: ChangeMe
+      #   clusterrole: admin

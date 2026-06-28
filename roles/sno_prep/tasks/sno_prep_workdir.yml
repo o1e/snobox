@@ -1,0 +1,29 @@
+---
+- name: Cleanup workdir
+  ansible.builtin.file:
+    path: "{{ sno_prep_workdir }}"
+    state: absent
+  when: sno_prep_cleanup | bool
+  delegate_to: localhost
+
+- name: Create workdir directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ sno_prep_workdir }}"
+    - "{{ sno_prep_workdirs.bin }}"
+    - "{{ sno_prep_workdirs.downloads }}"
+    - "{{ sno_prep_workdirs.downloads_checksums }}"
+    - "{{ sno_prep_workdirs.downloads_rhcos }}"
+    - "{{ sno_prep_workdirs.ocp }}"
+    - "{{ sno_prep_workdirs.ssh }}"
+  delegate_to: localhost
+
+- name: Ensure ssh dir permissions are set
+  ansible.builtin.file:
+    path: "{{ sno_prep_workdirs.ssh }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost

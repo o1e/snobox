@@ -1,0 +1,291 @@
+---
+- name: Validate required secret inputs for install-config
+  ansible.builtin.assert:
+    that:
+      - sno_prep_ssh_public_key is defined
+      - sno_prep_ssh_public_key | length > 0
+      - sno_prep_box.distribution == 'okd' or _pullsecret is defined
+      - sno_prep_box.distribution == 'okd' or _pullsecret | length > 0
+    fail_msg: >-
+      Missing required secrets: ssh public key and, for OCP, _pullsecret.
+  no_log: true
+
+- name: Create install-config.yaml
+  ansible.builtin.template:
+    src: install_config_snobox.j2
+    dest: "{{ sno_prep_workdirs.ocp }}/install-config.yaml"
+    mode: "0600"
+  delegate_to: localhost
+  no_log: true
+
+- name: Create Reference install-config.yaml
+  ansible.builtin.template:
+    src: install_config_snobox.j2
+    dest: "{{ sno_prep_workdirs.ocp }}/install-config.yaml.orig"
+    mode: "0600"
+  delegate_to: localhost
+  no_log: true
+
+- name: Render static NetworkManager profile
+  ansible.builtin.template:
+    src: ignition_net_static_nmconnection.j2
+    dest: "{{ sno_prep_workdirs.ocp }}/{{ sno_prep_box.hostname }}.nmconnection"
+    mode: "0600"
+  delegate_to: localhost
+  when:
+    - sno_net.type == 'bridge'
+    - sno_net.bridge.mode == 'static'
+
+- name: Read rendered static NetworkManager profile
+  ansible.builtin.slurp:
+    src: "{{ sno_prep_workdirs.ocp }}/{{ sno_prep_box.hostname }}.nmconnection"
+  delegate_to: localhost
+  register: _sno_prep_nmconnection
+  when:
+    - sno_net.type == 'bridge'
+    - sno_net.bridge.mode == 'static'
+
+- name: Generate ignition config (single-node)
+  ansible.builtin.command: >
+    {{ sno_prep_workdirs.bin }}/openshift-install
+    --dir {{ sno_prep_workdirs.ocp }}
+    create single-node-ignition-config
+  args:
+    creates: "{{ sno_prep_workdirs.ocp }}/bootstrap-in-place-for-live-iso.ign"
+  delegate_to: localhost
+
+- name: Read bootstrap-in-place live ISO ignition
+  ansible.builtin.slurp:
+    src: "{{ sno_prep_workdirs.ocp }}/bootstrap-in-place-for-live-iso.ign"
+  delegate_to: localhost
+  register: _sno_prep_live_ignition
+
+- name: Parse bootstrap-in-place live ISO ignition
+  ansible.builtin.set_fact:
+    _sno_prep_live_ignition_json: "{{ _sno_prep_live_ignition.content | b64decode | from_json }}"
+    _sno_prep_nmconnection_path: "/etc/NetworkManager/system-connections/{{ sno_prep_box.hostname }}.nmconnection"
+
+- name: Add hostname persistence to bootstrap ignition
+  ansible.builtin.copy:
+    # Write updated ignition back to disk
+    dest: "{{ sno_prep_workdirs.ocp }}/bootstrap-in-place-for-live-iso.ign"
+    mode: "0600"
+    # Render final ignition JSON
+    content: "{{ updated_ignition | to_nice_json }}"
+  delegate_to: localhost
+  vars:
+
+    # Existing ignition storage.files entries
+    current_files: "{{ _sno_prep_live_ignition_json.storage.files | default([]) }}"
+
+    # Persistent hostname file path
+    _sno_prep_hostname_path: "/etc/hostname"
+
+    # Prevent NetworkManager from overwriting/removing hostname
+    _sno_prep_nm_hostname_conf_path: >-
+      /etc/NetworkManager/conf.d/99-sno-hostname.conf
+
+    # Static NetworkManager profile path
+    #
+    # Only used for bridge/static mode
+    #
+    _sno_prep_nmconnection_path: >-
+      /etc/NetworkManager/system-connections/{{ sno_prep_box.hostname }}.nmconnection
+
+    # Bootstrap-in-place post-reboot FCC path
+    #
+    # This file is applied after the bootstrap reboot.
+    # Hostname persistence must be added here as well,
+    # otherwise the final node may fall back to localhost.localdomain.
+    #
+    _sno_prep_master_update_fcc_path: >-
+      /opt/openshift/bootstrap-in-place/master-update.fcc
+
+    # Base64 encoded hostname content
+    #
+    # Example:
+    # pubbox1.pubbox.192-168-2-15.sslip.io
+    #
+    _sno_prep_hostname:
+      content: "{{ (sno_prep_dns.node_fqdn ~ '\n') | b64encode }}"
+
+    # Disable NetworkManager hostname management
+    #
+    # Otherwise NM may reset hostname back to localhost/localdomain
+    #
+    _sno_prep_nm_hostname_conf:
+      content: "{{ '[main]\nhostname-mode=none\n' | b64encode }}"
+
+    # Decode embedded bootstrap-in-place post-reboot FCC
+    #
+    # master-update.fcc is stored as a base64 data URL inside
+    # bootstrap-in-place-for-live-iso.ign.
+    #
+    master_update_fcc_raw: >-
+      {{
+        (
+          current_files
+          | selectattr('path', 'equalto', _sno_prep_master_update_fcc_path)
+          | first
+        ).contents.source
+        | regex_replace('^data:text/plain;charset=utf-8;base64,', '')
+        | b64decode
+      }}
+
+    # Hostname files injected into master-update.fcc
+    #
+    # These entries are applied after the bootstrap reboot.
+    #
+    master_update_fcc_hostname_files: |2
+
+          - path: /etc/hostname
+            mode: 0644
+            overwrite: true
+            contents:
+              inline: {{ sno_prep_dns.node_fqdn }}
+
+          - path: /etc/NetworkManager/conf.d/99-sno-hostname.conf
+            mode: 0644
+            overwrite: true
+            contents:
+              inline: |
+                [main]
+                hostname-mode=none
+
+    # Patch master-update.fcc
+    #
+    # The generated FCC currently starts the storage section with:
+    #
+    # storage:
+    #   trees:
+    #
+    # This injects storage.files before storage.trees.
+    #
+    master_update_fcc_updated: >-
+      {{
+        master_update_fcc_raw
+        | regex_replace(
+            '(?m)^  files:\s*$',
+            '  files:'
+            ~ master_update_fcc_hostname_files
+          )
+      }}
+
+    # Remove previously managed entries from ignition
+    #
+    # Prevents duplicate file entries on reruns
+    #
+    filtered_files: >-
+      {{
+        current_files
+        | rejectattr('path', 'equalto', _sno_prep_hostname_path)
+        | rejectattr('path', 'equalto', _sno_prep_nm_hostname_conf_path)
+        | rejectattr('path', 'equalto', _sno_prep_nmconnection_path)
+        | rejectattr('path', 'equalto', _sno_prep_master_update_fcc_path)
+        | list
+      }}
+
+    # Static NetworkManager profile
+    #
+    # Contains:
+    # - static IP
+    # - gateway
+    # - DNS
+    # - MAC binding
+    #
+    # Only injected for bridge/static mode
+    #
+    nmconnection_file_entry:
+      path: "{{ _sno_prep_nmconnection_path }}"
+      mode: 384
+      overwrite: true
+      contents:
+        source: >-
+          data:text/plain;charset=utf-8;base64,{{ _sno_prep_nmconnection.content }}
+
+    # Persistent hostname file
+    #
+    # Required so node-valid-hostname.service succeeds
+    #
+    hostname_file_entry:
+      path: "{{ _sno_prep_hostname_path }}"
+      mode: 420
+      overwrite: true
+      contents:
+        source: >-
+          data:text/plain;charset=utf-8;base64,{{ _sno_prep_hostname.content }}
+
+    # NetworkManager hostname override config
+    #
+    # Prevents NM from removing/resetting hostname
+    #
+    nm_hostname_conf_file_entry:
+      path: "{{ _sno_prep_nm_hostname_conf_path }}"
+      mode: 420
+      overwrite: true
+      contents:
+        source: >-
+          data:text/plain;charset=utf-8;base64,{{ _sno_prep_nm_hostname_conf.content }}
+
+    # Patched bootstrap-in-place post-reboot FCC
+    #
+    # Required so hostname survives the bootstrap reboot
+    #
+    master_update_fcc_file_entry:
+      path: "{{ _sno_prep_master_update_fcc_path }}"
+      mode: 420
+      overwrite: true
+      contents:
+        source: >-
+          data:text/plain;charset=utf-8;base64,{{
+            master_update_fcc_updated | b64encode
+          }}
+
+    # Final managed ignition file entries
+    #
+    # bridge/static:
+    #   hostname + NM hostname config + static NM profile
+    #
+    # bootstrap reboot:
+    #   patched master-update.fcc
+    new_files_list: >-
+      {{
+        filtered_files
+        + (
+            [nmconnection_file_entry]
+            if sno_net.type == 'bridge' and sno_net.bridge.mode == 'static'
+            else []
+          )
+        + [
+            hostname_file_entry,
+            nm_hostname_conf_file_entry,
+            master_update_fcc_file_entry
+          ]
+      }}
+
+    # Merge updated files into ignition storage section
+    updated_storage: >-
+      {{
+        _sno_prep_live_ignition_json.storage
+        | default({})
+        | combine({'files': new_files_list})
+      }}
+
+    # Build final ignition document
+    updated_ignition: >-
+      {{
+        _sno_prep_live_ignition_json
+        | combine({'storage': updated_storage})
+      }}
+  when:
+    - sno_prep_dns.node_fqdn is defined
+    - sno_prep_dns.node_fqdn | length > 0
+
+- name: Patch live ISO with generated ignition file
+  ansible.builtin.command: >
+    {{ sno_prep_workdirs.bin }}/coreos-installer
+    iso ignition embed
+    -fi {{ sno_prep_workdirs.ocp }}/bootstrap-in-place-for-live-iso.ign
+    {{ sno_prep_workdirs.downloads_rhcos }}/{{ sno_prep_live_iso_file }}
+  delegate_to: localhost
+  changed_when: true

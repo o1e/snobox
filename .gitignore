@@ -1,0 +1,104 @@
+# ==================================================
+# SNObox - tailored .gitignore
+# ==================================================
+# --------------------------------------------------
+# Local build + runtime state
+# --------------------------------------------------
+state/
+workdir/
+tmp/
+.cache/
+
+--------------------------------------------------
+# OCP installer workdirs
+--------------------------------------------------
+**/ocp/
+**/openshift/
+
+# --------------------------------------------------
+# RHCOS / VM artifacts (never commit)
+# --------------------------------------------------
+*.iso
+*.qcow2
+*.img
+
+# --------------------------------------------------
+# Ansible / ansible-navigator
+# --------------------------------------------------
+*.retry
+*.log
+log/
+
+.ansible/
+ansible-navigator.log
+ansible-navigator.json
+
+# execution environment leftovers
+.ee/
+ansible-navigator/
+
+# collections cache
+collections/ansible_collections/
+
+# --------------------------------------------------
+# Secrets / credentials
+# --------------------------------------------------
+.secrets/
+
+# OpenShift auth material
+**/auth/
+**/kubeconfig
+**/kubeadmin-password
+**/*install-config.yaml
+
+# TLS / private keys
+files/certs/
+**/*.key
+**/*.pem
+**/*.p12
+
+# Vault
+**/vault.yml
+**/vault_pass.txt
+
+# --------------------------------------------------
+# Python / local tooling
+# --------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.venv/
+venv/
+env/
+
+# pytest / coverage (falls mal genutzt)
+.coverage
+.pytest_cache/
+
+# --------------------------------------------------
+# Editors / IDEs
+# --------------------------------------------------
+# Vim
+*.swp
+*.swo
+*~
+# VS Code
+.vscode/
+# JetBrains
+.idea/
+
+# --------------------------------------------------
+# OS junk
+# --------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --------------------------------------------------
+# Misc temp
+# --------------------------------------------------
+*.tmp
+*.bak
+*.orig
+*.sav

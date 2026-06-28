@@ -1,0 +1,21 @@
+---
+# htpasswd-based OpenShift users
+
+sno_users:
+  ocp_users:
+    # Name of the Kubernetes secret created from htpasswd file
+    secretname: htpass-secret
+
+    # User definitions
+    userlist:
+      - name: admin
+        pw: ChangeMe
+        clusterrole: cluster-admin
+
+      - name: cluster-status
+        pw: ChangeMe
+        clusterrole: cluster-status
+
+      - name: developer
+        pw: ChangeMe
+        clusterrole: admin

@@ -1,0 +1,53 @@
+---
+# ---------------------------------------------------------
+# OKD installer and client
+# ---------------------------------------------------------
+
+- name: Download openshift-install tarball (OKD)
+  ansible.builtin.get_url:
+    url: "{{ sno_prep_urls.okd.inst_base_url }}/{{ sno_prep_urls.okd.inst_bin }}"
+    dest: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_urls.okd.inst_bin }}"
+    mode: "0644"
+  delegate_to: localhost
+
+- name: Extract openshift-install into bin/
+  ansible.builtin.unarchive:
+    src: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_urls.okd.inst_bin }}"
+    dest: "{{ sno_prep_workdirs.bin }}"
+    remote_src: true
+  delegate_to: localhost
+
+- name: Ensure openshift-install is executable
+  ansible.builtin.file:
+    path: "{{ sno_prep_workdirs.bin }}/openshift-install"
+    mode: "0755"
+    state: file
+  delegate_to: localhost
+
+- name: Download oc client tarball (OKD)
+  ansible.builtin.get_url:
+    url: "{{ sno_prep_urls.okd.inst_base_url }}/{{ sno_prep_urls.okd.oc_client_bin }}"
+    dest: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_urls.okd.oc_client_bin }}"
+    mode: "0644"
+  delegate_to: localhost
+
+- name: Extract oc/kubectl into bin/
+  ansible.builtin.unarchive:
+    src: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_urls.okd.oc_client_bin }}"
+    dest: "{{ sno_prep_workdirs.bin }}"
+    remote_src: true
+  delegate_to: localhost
+
+- name: Ensure oc is executable
+  ansible.builtin.file:
+    path: "{{ sno_prep_workdirs.bin }}/oc"
+    mode: "0755"
+    state: file
+  delegate_to: localhost
+
+- name: Ensure kubectl is executable
+  ansible.builtin.file:
+    path: "{{ sno_prep_workdirs.bin }}/kubectl"
+    mode: "0755"
+    state: file
+  delegate_to: localhost

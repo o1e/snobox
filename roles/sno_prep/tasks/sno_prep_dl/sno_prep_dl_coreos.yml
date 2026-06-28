@@ -1,0 +1,44 @@
+---
+# ---------------------------------------------------------
+# RHCOS live ISO via openshift-install
+# ---------------------------------------------------------
+
+- name: Get CoreOS stream JSON
+  ansible.builtin.command:
+    argv:
+      - "{{ sno_prep_workdirs.bin }}/openshift-install"
+      - coreos
+      - print-stream-json
+  register: _coreos_stream
+  changed_when: false
+  delegate_to: localhost
+
+- name: Parse RHCOS live ISO URL and sha256 from stream JSON
+  ansible.builtin.set_fact:
+    _rhcos_iso_url: >-
+      {{
+        (_coreos_stream.stdout | from_json).architectures.x86_64.artifacts.metal.formats.iso.disk.location
+      }}
+    _rhcos_iso_sha256: >-
+      {{
+        (_coreos_stream.stdout | from_json).architectures.x86_64.artifacts.metal.formats.iso.disk.sha256
+      }}
+
+- name: Download RHCOS live ISO
+  ansible.builtin.get_url:
+    url: "{{ _rhcos_iso_url }}"
+    dest: "{{ sno_prep_workdirs.downloads_rhcos }}/{{ sno_prep_live_iso_file }}"
+    mode: "0644"
+    checksum: "sha256:{{ _rhcos_iso_sha256 }}"
+  delegate_to: localhost
+
+# ---------------------------------------------------------
+# coreos-installer
+# ---------------------------------------------------------
+
+- name: Download coreos-installer with checksum validation
+  ansible.builtin.get_url:
+    url: "{{ sno_prep_urls.coreos.inst_base_url }}/{{ sno_prep_urls.coreos.inst_bin }}"
+    dest: "{{ sno_prep_workdirs.bin }}/{{ sno_prep_urls.coreos.inst_bin }}"
+    mode: "0755"
+  delegate_to: localhost

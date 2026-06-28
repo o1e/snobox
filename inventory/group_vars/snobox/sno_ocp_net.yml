@@ -1,0 +1,18 @@
+---
+# Default OpenShift networking configuration (install-config.yaml)
+
+sno_ocp_net:
+  # SDN type (OVNKubernetes recommended)
+  network_type: OVNKubernetes
+
+  # Pod CIDR range(s)
+  cluster_network:
+    - cidr: 10.128.0.0/14
+      host_prefix: 23
+
+  # Service CIDR range(s)
+  service_network:
+    - 172.30.0.0/16
+
+  # machineNetwork is derived dynamically during sno_prep
+  machine_network: []

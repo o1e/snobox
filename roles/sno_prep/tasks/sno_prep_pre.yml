@@ -1,0 +1,230 @@
+---
+- name: Validate required inputs
+  ansible.builtin.assert:
+    that:
+      - sno_prep_box is mapping
+      - sno_prep_box.hostname is defined
+      - sno_prep_box.clustername is defined
+      - sno_prep_box.distribution is defined
+      - sno_prep_box[sno_prep_box.distribution] is defined
+      - sno_prep_box[sno_prep_box.distribution].version is defined
+      - sno_prep_box[sno_prep_box.distribution].version | length > 0
+      - sno_prep_dns is mapping
+      - sno_prep_dns.base_domain is defined
+      - sno_prep_dns.base_domain | length > 0
+      - sno_prep_dns.cluster_domain is defined
+      - sno_prep_dns.cluster_domain | length > 0
+    fail_msg: >-
+      sno_prep: missing required inputs.
+      Expected sno_prep_box.hostname/clustername and sno_prep_box.distribution.
+
+- name: Validate resolved workspace variables
+  ansible.builtin.assert:
+    that:
+      - sno_prep_workdir is defined
+      - sno_prep_workdir | length > 0
+
+      - sno_prep_workdirs is mapping
+      - sno_prep_workdirs.bin is defined
+      - sno_prep_workdirs.downloads is defined
+      - sno_prep_workdirs.downloads_checksums is defined
+      - sno_prep_workdirs.downloads_rhcos is defined
+      - sno_prep_workdirs.ocp is defined
+      - sno_prep_workdirs.ssh is defined
+
+    fail_msg: >-
+      sno_prep: global path variables sno_prep_workdirs not resolved.
+
+- name: Validate download URL input
+  ansible.builtin.assert:
+    that:
+      - sno_prep_urls is mapping
+      - sno_prep_urls.ocp is mapping
+      - sno_prep_urls.ocp.inst_base_url is defined
+      - sno_prep_urls.ocp.inst_base_url | length > 0
+      - sno_prep_urls.ocp.inst_bin is defined
+      - sno_prep_urls.ocp.inst_bin | length > 0
+      - sno_prep_urls.ocp.oc_client_bin is defined
+      - sno_prep_urls.ocp.oc_client_bin | length > 0
+      - sno_prep_urls.okd is mapping
+      - sno_prep_urls.okd.inst_base_url is defined
+      - sno_prep_urls.okd.inst_base_url | length > 0
+      - sno_prep_urls.okd.inst_bin is defined
+      - sno_prep_urls.okd.inst_bin | length > 0
+      - sno_prep_urls.okd.oc_client_bin is defined
+      - sno_prep_urls.okd.oc_client_bin | length > 0
+      - sno_prep_urls.coreos is mapping
+      - sno_prep_urls.coreos.inst_base_url is defined
+      - sno_prep_urls.coreos.inst_base_url | length > 0
+      - sno_prep_urls.coreos.inst_bin is defined
+      - sno_prep_urls.coreos.inst_bin | length > 0
+    fail_msg: >-
+      sno_prep: missing download URL input.
+      Expected sno_prep_urls from inventory/group_vars/snobox/sno_urls.yml
+      mapped by playbooks/10_sno_prep.yml.
+
+- name: Validate DNS mode and resolved names
+  ansible.builtin.assert:
+    that:
+      - sno_prep_dns.mode is defined
+      - sno_prep_dns.mode in ['local', 'public_wildcard']
+      - sno_prep_dns.base_domain == (sno_prep_dns.base_domain | trim)
+      - "' ' not in sno_prep_dns.base_domain"
+      - sno_prep_dns.cluster_domain == (sno_prep_dns.cluster_domain | trim)
+      - "' ' not in sno_prep_dns.cluster_domain"
+      - sno_prep_dns.node_fqdn is defined
+      - sno_prep_dns.node_fqdn | length > 0
+      - sno_prep_dns.node_fqdn == (sno_prep_dns.node_fqdn | trim)
+      - "' ' not in sno_prep_dns.node_fqdn"
+    fail_msg: >-
+      sno_prep: invalid DNS configuration.
+      Expected dns_mode local or public_wildcard and whitespace-free resolved
+      base_domain, cluster_domain and node_fqdn values.
+
+- name: Handle pull secret (OCP only)
+  when:
+    - sno_prep_box.distribution == 'ocp'
+  block:
+    - name: Check if pull secret file exists
+      ansible.builtin.stat:
+        path: "{{ sno_prep_pullsecret_path }}"
+      delegate_to: localhost
+      register: _pullsecret_stat
+      run_once: true
+
+    - name: Abort if pull secret is missing
+      ansible.builtin.fail:
+        msg: >
+          Pull secret not found at {{ sno_prep_pullsecret_path }}.
+          Download it from https://console.redhat.com/openshift and place it there.
+      when: not _pullsecret_stat.stat.exists
+      run_once: true
+
+    - name: Read pull secret file
+      ansible.builtin.set_fact:
+        _pullsecret_raw: "{{ lookup('file', sno_prep_pullsecret_path) }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Normalize pull secret to single-line JSON
+      ansible.builtin.set_fact:
+        _pullsecret: "{{ _pullsecret_raw | from_json | to_json }}"
+      run_once: true
+
+- name: Show resolved paths
+  ansible.builtin.debug:
+    msg:
+      - "clusterid: {{ sno_prep_box.hostname }}.{{ sno_prep_box.clustername }}"
+      - "base_domain: {{ sno_prep_dns.base_domain }}"
+      - "cluster_domain: {{ sno_prep_dns.cluster_domain }}"
+      - "Distribution {{ sno_prep_box.distribution }}"
+      - "workdir: {{ sno_prep_workdir }}"
+      - "downloads: {{ sno_prep_workdirs.downloads }}"
+      - "downloads_checksums: {{ sno_prep_workdirs.downloads_checksums }}"
+      - "rhcos: {{ sno_prep_workdirs.downloads_rhcos }}"
+      - "ssh_key: {{ sno_prep_workdirs.ssh }}"
+      - "pullsecret: {{ sno_prep_pullsecret_path }}"
+
+# Build network settings
+- name: Derive active network settings
+  ansible.builtin.set_fact:
+    _active_net: >-
+      {{
+        sno_net.bridge
+        if sno_net.type == 'bridge'
+        else sno_net.nat
+      }}
+  when:
+    - sno_net is defined
+    - sno_net.type is defined
+
+- name: Validate active network CIDR
+  ansible.builtin.assert:
+    that:
+      - _active_net.cidr is defined
+      - _active_net.cidr | length > 0
+    fail_msg: "sno_net.{{ sno_net.type }}.cidr must be set and must match the SNO node IP network"
+  when:
+    - _active_net is defined
+
+- name: Validate bridge IP mode
+  ansible.builtin.assert:
+    that:
+      - sno_net.bridge.mode is defined
+      - sno_net.bridge.mode in ['dhcp', 'static']
+      - sno_net.bridge.specs is defined
+      - sno_net.bridge.specs[sno_net.bridge.mode] is defined
+    fail_msg: "sno_net.bridge.mode must be dhcp or static and sno_net.bridge.specs.<mode> must exist"
+  when:
+    - sno_net.type == 'bridge'
+
+- name: Validate public wildcard DNS target IP
+  ansible.builtin.assert:
+    that:
+      - sno_prep_dns.node_ip is defined
+      - sno_prep_dns.node_ip | length > 0
+    fail_msg: >-
+      public_wildcard requires a known node IP.
+      Use bridge/static, bridge/dhcp with specs.dhcp.reserved_ip, or nat.ip.
+  when:
+    - sno_prep_dns.mode == 'public_wildcard'
+
+- name: Validate bridge DHCP reservation for public wildcard DNS
+  ansible.builtin.assert:
+    that:
+      - sno_net.bridge.specs.dhcp.reserved_ip is defined
+      - sno_net.bridge.specs.dhcp.reserved_ip | length > 0
+    fail_msg: >-
+      bridge/dhcp with public_wildcard requires
+      sno_net.bridge.specs.dhcp.reserved_ip.
+  when:
+    - sno_net.type == 'bridge'
+    - sno_net.bridge.mode == 'dhcp'
+    - sno_prep_dns.mode == 'public_wildcard'
+
+- name: Validate static bridge network config
+  ansible.builtin.assert:
+    that:
+      - sno_net.bridge.specs.static.ip is defined
+      - sno_net.bridge.specs.static.ip | length > 0
+      - sno_net.bridge.specs.static.gw is defined
+      - sno_net.bridge.specs.static.gw | length > 0
+      - >
+        sno_net.bridge.specs.static.prefix is defined
+        or sno_net.bridge.specs.static.mask is defined
+    fail_msg: "sno_net.bridge.mode=static requires specs.static.ip, gw and prefix or mask"
+  when:
+    - sno_net.type == 'bridge'
+    - sno_net.bridge.mode == 'static'
+
+- name: Validate NAT network config
+  ansible.builtin.assert:
+    that:
+      - sno_net.nat.network is defined
+      - sno_net.nat.network | length > 0
+      - sno_net.nat.ip is defined
+      - sno_net.nat.ip | length > 0
+      - sno_net.nat.cidr is defined
+      - sno_net.nat.cidr | length > 0
+      - sno_net.nat.gateway is defined
+      - sno_net.nat.netmask is defined
+    fail_msg: "sno_net.nat requires network, ip, cidr, gateway and netmask"
+  when:
+    - sno_net.type == 'nat'
+
+- name: Fill machine_network in OCP network config
+  ansible.builtin.set_fact:
+    sno_prep_ocp_net: >-
+      {{
+        sno_prep_ocp_net
+        | combine({
+            'machine_network': (
+              sno_prep_ocp_net.machine_network
+              if (sno_prep_ocp_net.machine_network | default([]) | length) > 0
+              else [ { 'cidr': _active_net.cidr } ]
+            )
+          }, recursive=True)
+      }}
+  when:
+    - sno_prep_ocp_net is defined
+    - _active_net is defined

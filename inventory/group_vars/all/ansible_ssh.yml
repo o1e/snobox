@@ -1,0 +1,9 @@
+# Default SSH settings for Ansible connections.
+#
+# The SSH user is defined on the KVM host in inventory.yml because SNObox only
+# needs SSH access to the hypervisor, not to the managed SNO VMs.
+
+# Disable strict host key checking (useful for ephemeral labs / automation)
+ansible_ssh_common_args: >-
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null

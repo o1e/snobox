@@ -1,0 +1,34 @@
+---
+ansible-navigator:
+  logging:
+    # Navigator log file for troubleshooting EE/runtime issues.
+    file: ./log/ansible-navigator.log
+
+  # Plain terminal output, better suited for daily CLI usage.
+  mode: stdout
+
+  ansible:
+    config:
+      # Repository-local Ansible configuration.
+      path: ./ansible.cfg
+
+  execution-environment:
+    # Primary execution environment image.
+    image: docker.io/o1eb/ee-ocp4:latest
+
+    pull:
+      # Pull only when the image is not available locally.
+      # Better for stable and repeatable local development.
+      policy: missing
+
+    # Optional extra runtime arguments for the container engine.
+    # Uncomment only when required by the environment.
+    # container-options:
+    #   - "--net=host"
+
+  playbook-artifact:
+    # Keep disabled unless you explicitly want JSON run artifacts.
+    enable: false
+
+    # Suggested path if artifacts are enabled later.
+    # save-as: ./log/artifacts/ansible-navigator-artifact.json

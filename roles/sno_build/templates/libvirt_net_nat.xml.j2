@@ -1,0 +1,12 @@
+<network>
+  <name>{{ sno_build_net.nat.network }}</name>
+  <forward mode='nat'/>
+  <bridge name='{{ sno_build_net.nat.bridge_name | default(sno_build_net.nat.network) }}' stp='on' delay='0'/>
+  <ip address='{{ sno_build_net.nat.gateway | default("192.168.100.1") }}'
+      netmask='{{ sno_build_net.nat.netmask | default("255.255.255.0") }}'>
+    <dhcp>
+      <range start='{{ sno_build_net.nat.dhcp_start | default("192.168.100.50") }}'
+             end='{{ sno_build_net.nat.dhcp_end   | default("192.168.100.200") }}'/>
+    </dhcp>
+  </ip>
+</network>

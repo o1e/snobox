@@ -1,0 +1,19 @@
+---
+# Inputs
+sno_prep_box: {}
+sno_prep_dns: {}
+
+# Behavior
+sno_prep_cleanup: false
+
+# Role input. Repository download policy is supplied by inventory via
+# playbooks/10_sno_prep.yml.
+sno_prep_urls: {}
+
+sno_prep_live_iso_file: "rhcos-live.x86_64.{{ sno_prep_box.clustername }}.{{ sno_prep_dns.base_domain }}.iso"
+
+# OKD pullsecret (install-config.yml)
+sno_prep_fake_pullsecret: '{"auths":{"fake":{"auth":"aWQ6cGFzcwo="}}}'
+
+# Installation Disk for SNObox
+sno_prep_inst_device: /dev/vda

@@ -1,0 +1,41 @@
+---
+# inventory.yml
+#
+# Main inventory layout for snobox environments.
+#
+# Groups:
+#   kvm_hosts → physical/libvirt hypervisors
+#   snobox    → all SNO VMs managed by this project
+
+all:
+  children:
+
+    # ------------------------------------------------------------------
+    # KVM hosts (libvirt hypervisors)
+    # ------------------------------------------------------------------
+    kvm_hosts:
+      hosts:
+        kvm:
+          # Default: reachable via DNS/FQDN from Ansible controller
+          # ansible_host: "kvm.example.org"
+
+          # Special case: controller runs inside container (Ansible EE)
+          # on the KVM host
+          # (host.containers.internal resolves back to the host)
+          ansible_host: host.containers.internal
+          ansible_user: ansible_kvm
+
+    # ------------------------------------------------------------------
+    # Managed SNO clusters
+    # ------------------------------------------------------------------
+    snobox:
+      hosts:
+        snobox1:
+          # Reference to KVM host used for provisioning
+          sno_kvm_host: kvm
+
+        natbox1:
+          sno_kvm_host: kvm
+
+        pubbox1:
+          sno_kvm_host: kvm

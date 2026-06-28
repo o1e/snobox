@@ -1,0 +1,11 @@
+---
+# Main entrypoint
+
+- name: Prepare SNObox workdir and artifacts
+  import_playbook: 10_sno_prep.yml
+
+- name: Build and provision SNObox VM
+  import_playbook: 20_sno_build.yml
+
+- name: Configure SNObox cluster
+  import_playbook: 30_sno_conf.yml

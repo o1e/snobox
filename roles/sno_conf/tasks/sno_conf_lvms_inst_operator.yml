@@ -1,0 +1,84 @@
+---
+- name: Read ClusterVersion 'version'
+  delegate_to: localhost
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+  register: _cv
+  changed_when: false
+
+- name: Derive LVMS channel from clusterversion.spec.channel (stable-x.yy)
+  ansible.builtin.set_fact:
+    _lvms_channel: "{{ _cv.resources[0].spec.channel }}"
+  changed_when: false
+
+- name: Ensure openshift-storage namespace exists
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: openshift-storage
+
+# ---------------------------------------------------------
+# OperatorGroup
+# ---------------------------------------------------------
+
+- name: Ensure LVM OperatorGroup exists
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: lvm-storage-group
+        namespace: openshift-storage
+      spec:
+        targetNamespaces:
+          - openshift-storage
+
+# ---------------------------------------------------------
+# Subscription
+# ---------------------------------------------------------
+
+- name: Subscribe to LVMS Operator (dynamic channel)
+  delegate_to: localhost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: lvms-operator
+        namespace: openshift-storage
+      spec:
+        channel: "{{ _lvms_channel }}"
+        installPlanApproval: Automatic
+        name: lvms-operator
+        source: redhat-operators
+        sourceNamespace: openshift-marketplace
+
+# ---------------------------------------------------------
+# Wait for CSV Succeeded
+# ---------------------------------------------------------
+
+- name: Wait until LVMS CSV is Succeeded
+  delegate_to: localhost
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: openshift-storage
+  register: _lvms_csv
+  until: >
+    _lvms_csv.resources
+    | selectattr('spec.displayName', 'search', 'LVM Storage')
+    | selectattr('status.phase', 'equalto', 'Succeeded')
+    | list
+    | length > 0
+  retries: 30
+  delay: 20
+  changed_when: false

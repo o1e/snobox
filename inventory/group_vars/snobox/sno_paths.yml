@@ -1,0 +1,22 @@
+---
+# Path layout used across the project.
+# Derived from inventory location to stay portable.
+
+# Repository root (one level above inventory/)
+sno_repo_root: "{{ inventory_dir | dirname }}"
+
+# Global runtime state directory (not version-controlled)
+sno_state_root: "{{ sno_repo_root }}/state"
+
+# Per-cluster working directory
+# sno_workdir: "{{ sno_state_root }}/{{ sno_box.hostname }}.{{ sno_box.clustername }}"
+sno_workdir: "{{ sno_state_root }}/{{ sno_dns.node_fqdn }}"
+
+# Structured subdirectories used by roles
+sno_workdirs:
+  bin: "{{ sno_workdir }}/bin"                  # extracted binaries (oc, installer, etc.)
+  downloads: "{{ sno_workdir }}/downloads"      # downloaded artifacts
+  downloads_checksums: "{{ sno_workdir }}/downloads/checksums"
+  downloads_rhcos: "{{ sno_workdir }}/downloads/rhcos"
+  ocp: "{{ sno_workdir }}/ocp"                  # generated install assets
+  ssh: "{{ sno_workdir }}/ssh"                  # SSH keys + configs
