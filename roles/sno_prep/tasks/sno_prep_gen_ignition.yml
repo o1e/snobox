@@ -4,10 +4,10 @@
     that:
       - sno_prep_ssh_public_key is defined
       - sno_prep_ssh_public_key | length > 0
-      - sno_prep_box.distribution == 'okd' or _pullsecret is defined
-      - sno_prep_box.distribution == 'okd' or _pullsecret | length > 0
+      - not (_sno_prep_pullsecret_required | default(false) | bool) or _pullsecret is defined
+      - not (_sno_prep_pullsecret_required | default(false) | bool) or _pullsecret | length > 0
     fail_msg: >-
-      Missing required secrets: ssh public key and, for OCP, _pullsecret.
+      Missing required secrets: ssh public key and, when required, _pullsecret.
   no_log: true
 
 - name: Create install-config.yaml
@@ -132,44 +132,56 @@
         | b64decode
       }}
 
-    # Hostname files injected into master-update.fcc
+    # Patch master-update.fcc.
     #
-    # These entries are applied after the bootstrap reboot.
+    # OKD 5.0 can already contain hostname-related storage.files entries in the
+    # generated master-update.fcc. Parse the FCC as YAML and replace only the
+    # SNObox-managed paths to avoid duplicate entries on new installer output
+    # and on reruns.
     #
-    master_update_fcc_hostname_files: |2
-
-          - path: /etc/hostname
-            mode: 0644
-            overwrite: true
-            contents:
-              inline: {{ sno_prep_dns.node_fqdn }}
-
-          - path: /etc/NetworkManager/conf.d/99-sno-hostname.conf
-            mode: 0644
-            overwrite: true
-            contents:
-              inline: |
-                [main]
-                hostname-mode=none
-
-    # Patch master-update.fcc
-    #
-    # The generated FCC currently starts the storage section with:
-    #
-    # storage:
-    #   trees:
-    #
-    # This injects storage.files before storage.trees.
-    #
-    master_update_fcc_updated: >-
+    master_update_fcc_config: "{{ master_update_fcc_raw | from_yaml }}"
+    master_update_fcc_current_files: >-
       {{
-        master_update_fcc_raw
-        | regex_replace(
-            '(?m)^  files:\s*$',
-            '  files:'
-            ~ master_update_fcc_hostname_files
-          )
+        master_update_fcc_config.storage.files
+        | default([])
       }}
+    master_update_fcc_hostname_file_entry:
+      path: "{{ _sno_prep_hostname_path }}"
+      mode: 420
+      overwrite: true
+      contents:
+        inline: "{{ sno_prep_dns.node_fqdn ~ '\n' }}"
+    master_update_fcc_nm_hostname_conf_file_entry:
+      path: "{{ _sno_prep_nm_hostname_conf_path }}"
+      mode: 420
+      overwrite: true
+      contents:
+        inline: "[main]\nhostname-mode=none\n"
+    master_update_fcc_updated_files: >-
+      {{
+        (
+          master_update_fcc_current_files
+          | rejectattr('path', 'equalto', _sno_prep_hostname_path)
+          | rejectattr('path', 'equalto', _sno_prep_nm_hostname_conf_path)
+          | list
+        )
+        + [
+            master_update_fcc_hostname_file_entry,
+            master_update_fcc_nm_hostname_conf_file_entry
+          ]
+      }}
+    master_update_fcc_updated_storage: >-
+      {{
+        master_update_fcc_config.storage
+        | default({})
+        | combine({'files': master_update_fcc_updated_files})
+      }}
+    master_update_fcc_updated_config: >-
+      {{
+        master_update_fcc_config
+        | combine({'storage': master_update_fcc_updated_storage})
+      }}
+    master_update_fcc_updated: "{{ master_update_fcc_updated_config | to_nice_yaml }}"
 
     # Remove previously managed entries from ignition
     #

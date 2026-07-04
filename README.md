@@ -17,7 +17,7 @@ wildcard DNS such as `sslip.io`.
 - local DNS or public wildcard DNS modes
 - static bridge networking, DHCP reservation workflows and libvirt NAT DHCP
   reservations
-- optional LVMS setup for OCP labs
+- optional LVMS setup for OCP and OKD labs
 - generated kubeconfig, login and SSH handover file
 - Ansible Execution Environment friendly workflow through `ansible-navigator`
 - focused inventory examples for local, NAT and public wildcard DNS labs
@@ -47,8 +47,9 @@ See [inventory/README.md](inventory/README.md) for the full model.
 - Ansible, preferably through `ansible-navigator`
 - access to the configured Ansible Execution Environment
 - SSH key available to reach the KVM host as the inventory `ansible_user`
-- for OCP: a Red Hat pull secret at `.secrets/pull-secret.json` or an override
-  through `sno_pullsecret_path`
+- for OCP, or OKD features that use Red Hat Operator catalogs: a Red Hat pull
+  secret at `.secrets/pull-secret.json` or an override through
+  `sno_pullsecret_path`
 
 ### KVM Host
 
@@ -131,14 +132,20 @@ sno_box:
     version: 5.0.0-okd-scos.ec.0
 ```
 
-For OCP, place your pull secret here:
+For OCP, or OKD features that use Red Hat Operator catalogs, place your pull
+secret here:
 
 ```bash
 mkdir -p .secrets
 cp ~/Downloads/pull-secret.json .secrets/pull-secret.json
 ```
 
-OKD does not require a Red Hat pull secret.
+OKD itself does not require a Red Hat pull secret and uses a dummy pull secret
+when no file exists. Optional features that use Red Hat Operator catalogs, such
+as LVMS, still need valid `registry.redhat.io` credentials or an alternate
+catalog override. When the file exists, SNObox writes it into the OKD
+`install-config.yaml` so the cluster-global pull secret can be used by those
+features.
 
 ### 3. Run Provisioning
 
@@ -188,6 +195,28 @@ ansible-navigator run playbooks/20_sno_build.yml --limit <host> --tags sno_build
 ansible-navigator run playbooks/30_sno_conf.yml --limit <host>
 ```
 
+## Add-ons
+
+SNObox keeps add-on installation and execution in `tools/boxctl`. Available
+add-ons are declared in [addons/addons.yml](addons/addons.yml); installed add-on repositories
+and inventory overlays live under ignored local paths in `addons/<name>/`.
+
+```bash
+# List add-ons from addons/addons.yml
+tools/boxctl list
+
+# Install or run an add-on
+tools/boxctl install roxbox
+tools/boxctl run roxbox --limit pubbox1
+
+# Inspect local install state
+tools/boxctl status
+```
+
+Add-on repositories provide `addon.yml`, an inventory template, playbooks and
+roles. The SNObox `boxctl` copies the add-on inventory template into
+`addons/<name>/inventory` once, leaving local overrides untouched on later runs.
+
 ## Documentation
 
 | Path | Purpose |
@@ -208,6 +237,7 @@ Upstream documentation:
 
 ```text
 inventory/        inventory, examples and configuration defaults
+addons/addons.yml add-on registry consumed by tools/boxctl
 playbooks/        execution entry points
 roles/            implementation roles
 docs/             operator and security documentation

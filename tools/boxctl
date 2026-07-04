@@ -1,0 +1,385 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly DEFAULT_REGISTRY="addons/addons.yml"
+readonly DEFAULT_INVENTORY="inventory/inventory.yml"
+
+usage() {
+  cat <<'USAGE'
+boxctl
+
+Run from the SNObox repository root.
+
+Commands:
+  boxctl list
+  boxctl install ADDON [--repo-url URL] [--version REF]
+  boxctl run ADDON [--limit HOST] [--repo PATH] [--overlay PATH]
+  boxctl status [ADDON]
+
+Options:
+  --registry PATH  Add-on registry file. Default: addons/addons.yml
+
+Examples:
+  tools/boxctl list
+  tools/boxctl install roxbox
+  tools/boxctl install acsbox --version v0.1.0
+  tools/boxctl run roxbox --limit pubbox1
+USAGE
+}
+
+die() {
+  printf 'boxctl: %s\n' "$*" >&2
+  exit 1
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+require_snobox_root() {
+  [ -f "$DEFAULT_INVENTORY" ] || die "run this from the SNObox repository root; missing $DEFAULT_INVENTORY"
+}
+
+require_registry() {
+  local registry="$1"
+  [ -f "$registry" ] || die "missing add-on registry: $registry"
+}
+
+registry_addons() {
+  local registry="$1"
+  awk '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    /^addons:[[:space:]]*$/ { in_addons = 1; next }
+    in_addons && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      name = $0
+      sub(/^  /, "", name)
+      sub(/:.*/, "", name)
+      print name
+    }
+  ' "$registry"
+}
+
+registry_field() {
+  local registry="$1"
+  local addon="$2"
+  local field="$3"
+
+  awk -v addon="$addon" -v field="$field" '
+    function trim(value) {
+      gsub(/^[ \t]+|[ \t]+$/, "", value)
+      gsub(/^["\047]|["\047]$/, "", value)
+      return value
+    }
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    /^addons:[[:space:]]*$/ { in_addons = 1; next }
+    in_addons && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      current = $0
+      sub(/^  /, "", current)
+      sub(/:.*/, "", current)
+      next
+    }
+    in_addons && current == addon {
+      prefix = "    " field ":"
+      if (index($0, prefix) == 1) {
+        value = substr($0, length(prefix) + 1)
+        print trim(value)
+        exit
+      }
+    }
+  ' "$registry"
+}
+
+addon_exists() {
+  local registry="$1"
+  local addon="$2"
+  registry_addons "$registry" | awk -v addon="$addon" '$0 == addon { found = 1 } END { exit found ? 0 : 1 }'
+}
+
+addon_file_field() {
+  local addon_file="$1"
+  local field="$2"
+
+  awk -v field="$field" '
+    function trim(value) {
+      gsub(/^[ \t]+|[ \t]+$/, "", value)
+      gsub(/^["\047]|["\047]$/, "", value)
+      return value
+    }
+    $0 ~ "^" field ":" {
+      value = substr($0, length(field) + 2)
+      print trim(value)
+      exit
+    }
+  ' "$addon_file"
+}
+
+addon_entrypoint() {
+  local addon_file="$1"
+  local entrypoint="$2"
+
+  awk -v entrypoint="$entrypoint" '
+    function trim(value) {
+      gsub(/^[ \t]+|[ \t]+$/, "", value)
+      gsub(/^["\047]|["\047]$/, "", value)
+      return value
+    }
+    /^entrypoints:[[:space:]]*$/ { in_entrypoints = 1; next }
+    in_entrypoints && /^[^[:space:]]/ { in_entrypoints = 0 }
+    in_entrypoints {
+      prefix = "  " entrypoint ":"
+      if (index($0, prefix) == 1) {
+        value = substr($0, length(prefix) + 1)
+        print trim(value)
+        exit
+      }
+    }
+  ' "$addon_file"
+}
+
+addon_display_name() {
+  local registry="$1"
+  local addon="$2"
+  local display
+
+  display="$(registry_field "$registry" "$addon" display_name)"
+  if [ -z "$display" ]; then
+    display="$addon"
+  fi
+  printf '%s' "$display"
+}
+
+addon_repo() {
+  local addon="$1"
+  printf 'addons/%s/repo' "$addon"
+}
+
+addon_overlay() {
+  local addon="$1"
+  printf 'addons/%s/inventory' "$addon"
+}
+
+list_addons() {
+  local registry="$1"
+  local addon display repo state
+
+  require_registry "$registry"
+  while IFS= read -r addon; do
+    [ -n "$addon" ] || continue
+    display="$(addon_display_name "$registry" "$addon")"
+    repo="$(addon_repo "$addon")"
+    if [ -d "$repo/.git" ] || [ -f "$repo/addon.yml" ]; then
+      state="installed"
+    else
+      state="available"
+    fi
+    printf '%-12s %-12s %s\n' "$addon" "$state" "$display"
+  done < <(registry_addons "$registry")
+}
+
+install_addon() {
+  local registry="$1"
+  local addon="$2"
+  shift 2
+
+  local repo_url version repo overlay template default_ref
+  repo_url="$(registry_field "$registry" "$addon" repo_url)"
+  default_ref="$(registry_field "$registry" "$addon" default_ref)"
+  version="$default_ref"
+  repo="$(addon_repo "$addon")"
+  overlay="$(addon_overlay "$addon")"
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --repo-url)
+        [ "$#" -ge 2 ] || die "--repo-url needs a value"
+        repo_url="$2"
+        shift 2
+        ;;
+      --version)
+        [ "$#" -ge 2 ] || die "--version needs a value"
+        version="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "unknown install argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$repo_url" ] || die "registry entry for $addon needs repo_url"
+  command_exists git || die "git is required for install"
+
+  mkdir -p "addons/$addon"
+  if [ -d "$repo/.git" ]; then
+    printf '%s repository already exists at %s\n' "$(addon_display_name "$registry" "$addon")" "$repo"
+  elif [ -e "$repo" ]; then
+    die "$repo exists but is not a git checkout"
+  else
+    git clone "$repo_url" "$repo"
+  fi
+
+  if [ -n "$version" ]; then
+    git -C "$repo" fetch --tags --prune
+    git -C "$repo" checkout "$version"
+  fi
+
+  [ -f "$repo/addon.yml" ] || die "installed repo has no addon.yml"
+  template="$(addon_file_field "$repo/addon.yml" inventory_overlay)"
+  if [ -z "$template" ]; then
+    template="inventory"
+  fi
+
+  if [ -d "$overlay" ]; then
+    printf '%s inventory overlay already exists at %s; leaving it unchanged\n' "$(addon_display_name "$registry" "$addon")" "$overlay"
+  else
+    [ -d "$repo/$template" ] || die "installed repo has no inventory template at $repo/$template"
+    mkdir -p "$(dirname "$overlay")"
+    cp -R "$repo/$template" "$overlay"
+    printf 'Created %s inventory overlay at %s\n' "$(addon_display_name "$registry" "$addon")" "$overlay"
+  fi
+}
+
+run_addon() {
+  local registry="$1"
+  local addon="$2"
+  shift 2
+
+  local limit repo overlay inventory addon_file playbook
+  limit=""
+  repo="$(addon_repo "$addon")"
+  overlay="$(addon_overlay "$addon")"
+  inventory="$DEFAULT_INVENTORY"
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --limit)
+        [ "$#" -ge 2 ] || die "--limit needs a value"
+        limit="$2"
+        shift 2
+        ;;
+      --repo)
+        [ "$#" -ge 2 ] || die "--repo needs a value"
+        repo="$2"
+        shift 2
+        ;;
+      --overlay)
+        [ "$#" -ge 2 ] || die "--overlay needs a value"
+        overlay="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "unknown run argument: $1"
+        ;;
+    esac
+  done
+
+  addon_file="$repo/addon.yml"
+  [ -f "$addon_file" ] || die "missing add-on metadata at $addon_file; run: tools/boxctl install $addon"
+  [ -d "$repo/roles" ] || die "missing add-on roles directory at $repo/roles"
+  [ -d "$overlay" ] || die "missing add-on inventory overlay at $overlay"
+
+  playbook="$(addon_entrypoint "$addon_file" install)"
+  if [ -z "$playbook" ]; then
+    playbook="playbooks/site.yml"
+  fi
+  [ -f "$repo/$playbook" ] || die "missing add-on playbook at $repo/$playbook"
+
+  export ANSIBLE_ROLES_PATH="$repo/roles:${ANSIBLE_ROLES_PATH:-roles}"
+
+  local -a cmd
+  if command_exists ansible-navigator; then
+    cmd=(ansible-navigator run "$repo/$playbook")
+  else
+    cmd=(ansible-playbook "$repo/$playbook")
+  fi
+
+  cmd+=(-i "$inventory" -i "$overlay")
+  if [ -n "$limit" ]; then
+    cmd+=(--limit "$limit")
+  fi
+
+  printf 'Running:'
+  printf ' %q' "${cmd[@]}"
+  printf '\n'
+  "${cmd[@]}"
+}
+
+status_addons() {
+  local registry="$1"
+  local requested="${2:-}"
+  local addon repo overlay version
+
+  require_registry "$registry"
+  while IFS= read -r addon; do
+    [ -n "$addon" ] || continue
+    if [ -n "$requested" ] && [ "$addon" != "$requested" ]; then
+      continue
+    fi
+    repo="$(addon_repo "$addon")"
+    overlay="$(addon_overlay "$addon")"
+    if [ -d "$repo/.git" ]; then
+      version="$(git -C "$repo" rev-parse --short HEAD 2>/dev/null || true)"
+      printf '%-12s installed repo=%s overlay=%s ref=%s\n' "$addon" "$repo" "$overlay" "$version"
+    else
+      printf '%-12s not-installed repo=%s overlay=%s\n' "$addon" "$repo" "$overlay"
+    fi
+  done < <(registry_addons "$registry")
+}
+
+main() {
+  local registry="$DEFAULT_REGISTRY"
+
+  while [ "${1:-}" = "--registry" ]; do
+    [ "$#" -ge 2 ] || die "--registry needs a value"
+    registry="$2"
+    shift 2
+  done
+
+  case "${1:-}" in
+    list)
+      shift
+      require_snobox_root
+      list_addons "$registry"
+      ;;
+    install)
+      shift
+      require_snobox_root
+      require_registry "$registry"
+      [ "${1:-}" ] || die "install needs an add-on name"
+      addon_exists "$registry" "$1" || die "unknown add-on: $1"
+      install_addon "$registry" "$@"
+      ;;
+    run)
+      shift
+      require_snobox_root
+      require_registry "$registry"
+      [ "${1:-}" ] || die "run needs an add-on name"
+      addon_exists "$registry" "$1" || die "unknown add-on: $1"
+      run_addon "$registry" "$@"
+      ;;
+    status)
+      shift
+      require_snobox_root
+      if [ "${1:-}" ]; then
+        addon_exists "$registry" "$1" || die "unknown add-on: $1"
+      fi
+      status_addons "$registry" "${1:-}"
+      ;;
+    -h|--help|"")
+      usage
+      ;;
+    *)
+      die "unknown command: $1"
+      ;;
+  esac
+}
+
+main "$@"

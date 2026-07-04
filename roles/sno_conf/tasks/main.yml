@@ -1,34 +1,30 @@
 ---
-- name: Warn if LVMS is enabled but not supported
-  ansible.builtin.debug:
-    msg: >-
-      LVMS is enabled, but LVMS is currently only supported on OCP.
-      Skipping LVMS tasks for distribution '{{ sno_conf_box.distribution }}'.
-  when:
-    - sno_conf_lvms.enabled | default(false) | bool
-    - sno_conf_box.distribution != "ocp"
+- name: Import OperatorHub configuration
+  ansible.builtin.import_tasks: sno_conf_operatorhub.yml
+  tags:
+    - sno_conf_operatorhub
 
 - name: Install LVMS Operator
   ansible.builtin.import_tasks: sno_conf_lvms_inst_operator.yml
   when:
     - sno_conf_lvms.enabled | default(false) | bool
-    - sno_conf_box.distribution == "ocp"
+    - sno_conf_box.distribution in ["ocp", "okd"]
+  tags:
+    - sno_conf_lvms
+    - sno_conf_lvms_operator
 
 - name: Import LVMS storage configuration
   ansible.builtin.import_tasks: sno_conf_lvms.yml
   when:
     - sno_conf_lvms.enabled | default(false) | bool
-    - sno_conf_box.distribution == "ocp"
+    - sno_conf_box.distribution in ["ocp", "okd"]
+  tags:
+    - sno_conf_lvms
 
 - name: Import Certificates configuration
   ansible.builtin.import_tasks: sno_conf_certs.yml
   tags:
     - sno_conf_certs
-
-- name: Import OperatorHub configuration
-  ansible.builtin.import_tasks: sno_conf_operatorhub.yml
-  tags:
-    - sno_conf_operatorhub
 
 - name: Import Oauth configuration
   ansible.builtin.import_tasks: sno_conf_oauth.yml

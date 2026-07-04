@@ -34,7 +34,7 @@ platform:
 bootstrapInPlace:
   installationDisk: {{ sno_prep_inst_device }}
 
-pullSecret: '{{ _pullsecret if sno_prep_box.distribution == "ocp" else sno_prep_fake_pullsecret }}'
+pullSecret: '{{ _pullsecret | default(sno_prep_fake_pullsecret) }}'
 
 sshKey: |
   {{ sno_prep_ssh_public_key }}

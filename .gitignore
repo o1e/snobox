@@ -8,6 +8,8 @@ state/
 workdir/
 tmp/
 .cache/
+/addons/*
+!/addons/addons.yml
 
 --------------------------------------------------
 # OCP installer workdirs

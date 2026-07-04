@@ -16,7 +16,8 @@
               if sno_conf_operatorhub.disable_all_default_sources is defined
               else (
                 sno_conf_box.distribution == 'okd' and
-                sno_conf_operatorhub.disable_default_sources_for_okd | default(true) | bool
+                sno_conf_operatorhub.disable_default_sources_for_okd | default(true) | bool and
+                not (sno_conf_lvms.enabled | default(false) | bool)
               )
             ) | bool
           }}

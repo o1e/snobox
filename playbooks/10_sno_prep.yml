@@ -18,5 +18,6 @@
         sno_prep_box: "{{ sno_box }}"
         sno_prep_net: "{{ sno_net }}"
         sno_prep_dns: "{{ sno_dns }}"
+        sno_prep_lvms: "{{ sno_lvms | default({}) }}"
       tags:
         - sno_prep

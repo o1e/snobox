@@ -15,7 +15,7 @@
       kubeconfig: "{{ sno_conf_kubeconfig }}"
   tasks:
     - name: Run sno_conf role
-      ansible.builtin.import_role:
+      ansible.builtin.include_role:
         name: sno_conf
       vars:
         sno_conf_box: "{{ sno_box }}"
@@ -28,4 +28,5 @@
         sno_conf_users: "{{ sno_users }}"
         sno_conf_tls: "{{ sno_tls }}"
       tags:
+        - always
         - sno_conf

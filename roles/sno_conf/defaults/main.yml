@@ -5,6 +5,9 @@ sno_conf_dns: {}
 sno_conf_operatorhub:
   # OKD examples do not ship Red Hat registry credentials, so the default
   # CatalogSources otherwise stay in ImagePullBackOff against registry.redhat.io.
+  # When LVMS is enabled, default sources must stay available because LVM
+  # Storage is installed from OperatorHub; the LVMS task validates that the
+  # cluster has registry.redhat.io credentials before subscribing.
   disable_default_sources_for_okd: true
 
 sno_conf_users:
