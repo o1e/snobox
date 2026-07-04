@@ -382,7 +382,7 @@ Defines the default LVMS behavior:
 - whether the LVMS StorageClass should become default
 - selected disk `name_suffixes`
 
-LVMS usage is host-specific. Enable it in `host_vars/<host>/sno_lvms.yml` only for OCP hosts that should use LVMS.
+LVMS usage is host-specific. Enable it in `host_vars/<host>/sno_lvms.yml` only for OCP or OKD hosts that should use LVMS.
 
 Example:
 
@@ -416,9 +416,14 @@ Only the selected LVMS suffixes are passed to the LVMS Operator. Other attached 
 
 Important:
 
-- LVMS is currently only available with OCP.
-- LVMS is not available with OKD at the moment.
-- OKD deployments must not rely on LVMS-based persistent storage.
+- LVMS is optional and disabled by default.
+- For OKD, SNObox uses the documented LVM Storage Operator path from
+  OperatorHub and installs it into `openshift-lvm-storage` by default.
+- OKD with LVMS needs valid `registry.redhat.io` credentials because the
+  default `lvms-operator` source is the Red Hat Operator catalog. A fake OKD
+  pull secret is not sufficient for this feature.
+- For OCP, SNObox keeps the existing default namespace `openshift-storage`.
+- Operator settings can be overridden under `sno_lvms.operator`.
 
 ---
 
@@ -461,9 +466,16 @@ outside a disposable lab.
 
 `roles/sno_conf/defaults/main.yml`
 
-For OKD, SNObox disables the default OperatorHub catalog sources by default.
-The OKD example does not use a Red Hat pull secret, and the default catalogs
-otherwise leave pods in `ImagePullBackOff` against `registry.redhat.io`.
+For OKD, SNObox disables the default OperatorHub catalog sources by default
+unless LVMS is enabled. The OKD example does not use a Red Hat pull secret, and
+the default catalogs otherwise leave pods in `ImagePullBackOff` against
+`registry.redhat.io`.
+
+When LVMS is enabled on OKD, default sources stay enabled because LVM Storage is
+installed from OperatorHub. In that mode, provide valid `registry.redhat.io`
+credentials in the global pull secret or override
+`sno_lvms.operator.catalog_source` and `sno_lvms.operator.catalog_namespace` to
+an alternate catalog that provides `lvms-operator`.
 
 Override `sno_conf_operatorhub.disable_all_default_sources` when you want to
 manage the OperatorHub source state explicitly.
@@ -484,9 +496,15 @@ Can be overridden via CLI extra vars.
 
 Notes:
 
-- OCP requires a valid pull secret
-- OKD does not require a Red Hat pull secret
-- For OKD, a valid dummy pull secret is used internally
+- OCP requires a valid pull secret.
+- OKD itself does not require a Red Hat pull secret.
+- For OKD without Red Hat catalog features, a valid dummy pull secret is used
+  internally.
+- OKD LVMS requires valid `registry.redhat.io` credentials unless the LVMS
+  Operator catalog is overridden.
+- When `.secrets/pull-secret.json` exists for an OKD host, SNObox uses it in
+  `install-config.yaml`; otherwise it falls back to the dummy pull secret when
+  no enabled feature requires Red Hat registry access.
 
 ---
 
@@ -503,7 +521,8 @@ cp -r inventory/host_vars/pubbox1_example inventory/host_vars/pubbox1
 
 Then update DNS names, IP addresses, bridge device names, and the base domain as required. For bridged networking, also decide whether the address is provided by external DHCP reservation (`mode: dhcp`) or embedded as static guest configuration (`mode: static`).
 
-The copied `host_vars/snobox1/sno_lvms.yml` can be used to enable LVMS for the OCP example host and to select which `data_disks` LVMS may consume. Do not enable LVMS for the OKD example host.
+The copied `host_vars/<host>/sno_lvms.yml` can be used to enable LVMS for OCP
+or OKD hosts and to select which `data_disks` LVMS may consume.
 
 The example FQDNs are based on `example.org` and should be replaced for real deployments.
 

@@ -84,8 +84,11 @@ Useful Red Hat links:
 - [OpenShift pull secret](https://console.redhat.com/openshift/install/pull-secret)
 - [Red Hat pull-secret documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/latest/html/images/managing-images#using-image-pull-secrets)
 
-Place the downloaded pull secret at `.secrets/pull-secret.json`, or override
-`sno_pullsecret_path` with an Ansible extra var.
+OKD itself can install with SNObox's dummy pull secret. If an OKD host enables a
+feature that uses Red Hat Operator catalogs, such as LVMS, place the downloaded
+pull secret at `.secrets/pull-secret.json`, or override `sno_pullsecret_path`
+with an Ansible extra var. SNObox then writes that pull secret into
+`install-config.yaml` during preparation.
 
 The example htpasswd users are lab defaults. Replace placeholder passwords such
 as `ChangeMe` before using the cluster for anything beyond a disposable lab.

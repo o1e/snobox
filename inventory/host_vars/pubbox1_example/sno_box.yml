@@ -18,9 +18,7 @@ sno_box:
 
   # Choose between okd or ocp
   #
-  # Note:
-  #   LVMS is currently only available with OCP.
-  #   OKD deployments must not rely on LVMS.
+  # Optional LVMS is configured separately in sno_lvms.yml.
   distribution: "okd"
   ocp:
     # OpenShift release or update channel

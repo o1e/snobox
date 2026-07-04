@@ -81,35 +81,65 @@
       Expected dns_mode local or public_wildcard and whitespace-free resolved
       base_domain, cluster_domain and node_fqdn values.
 
-- name: Handle pull secret (OCP only)
+- name: Derive pull secret requirements
+  vars:
+    _sno_prep_lvms_operator_config: "{{ sno_prep_lvms.operator | default({}) }}"
+    _sno_prep_lvms_catalog_source: >-
+      {{ _sno_prep_lvms_operator_config.catalog_source | default('redhat-operators') }}
+    _sno_prep_lvms_catalog_namespace: >-
+      {{ _sno_prep_lvms_operator_config.catalog_namespace | default('openshift-marketplace') }}
+  ansible.builtin.set_fact:
+    _sno_prep_okd_lvms_uses_redhat_catalog: >-
+      {{
+        sno_prep_box.distribution == 'okd'
+        and sno_prep_lvms.enabled | default(false) | bool
+        and _sno_prep_lvms_catalog_source in ['redhat-operators', 'certified-operators']
+        and _sno_prep_lvms_catalog_namespace == 'openshift-marketplace'
+      }}
+    _sno_prep_pullsecret_required: >-
+      {{
+        sno_prep_box.distribution == 'ocp'
+        or (
+          sno_prep_box.distribution == 'okd'
+          and sno_prep_lvms.enabled | default(false) | bool
+          and _sno_prep_lvms_catalog_source in ['redhat-operators', 'certified-operators']
+          and _sno_prep_lvms_catalog_namespace == 'openshift-marketplace'
+        )
+      }}
+  changed_when: false
+
+- name: Check if pull secret file exists
+  ansible.builtin.stat:
+    path: "{{ sno_prep_pullsecret_path }}"
+  delegate_to: localhost
+  register: _pullsecret_stat
+  when: sno_prep_box.distribution in ['ocp', 'okd']
+
+- name: Abort if pull secret is missing
+  ansible.builtin.fail:
+    msg: >-
+      Pull secret not found at {{ sno_prep_pullsecret_path }}.
+      OCP always requires it. OKD requires it when enabled features, such as
+      LVMS from the Red Hat Operator catalog, need registry.redhat.io access.
   when:
-    - sno_prep_box.distribution == 'ocp'
-  block:
-    - name: Check if pull secret file exists
-      ansible.builtin.stat:
-        path: "{{ sno_prep_pullsecret_path }}"
-      delegate_to: localhost
-      register: _pullsecret_stat
-      run_once: true
+    - _sno_prep_pullsecret_required | bool
+    - not _pullsecret_stat.stat.exists
 
-    - name: Abort if pull secret is missing
-      ansible.builtin.fail:
-        msg: >
-          Pull secret not found at {{ sno_prep_pullsecret_path }}.
-          Download it from https://console.redhat.com/openshift and place it there.
-      when: not _pullsecret_stat.stat.exists
-      run_once: true
+- name: Read pull secret file
+  ansible.builtin.set_fact:
+    _pullsecret_raw: "{{ lookup('file', sno_prep_pullsecret_path) }}"
+  delegate_to: localhost
+  no_log: true
+  when:
+    - sno_prep_box.distribution in ['ocp', 'okd']
+    - _pullsecret_stat.stat.exists
 
-    - name: Read pull secret file
-      ansible.builtin.set_fact:
-        _pullsecret_raw: "{{ lookup('file', sno_prep_pullsecret_path) }}"
-      delegate_to: localhost
-      run_once: true
-
-    - name: Normalize pull secret to single-line JSON
-      ansible.builtin.set_fact:
-        _pullsecret: "{{ _pullsecret_raw | from_json | to_json }}"
-      run_once: true
+- name: Normalize pull secret to single-line JSON
+  ansible.builtin.set_fact:
+    _pullsecret: "{{ _pullsecret_raw | from_json | to_json }}"
+  no_log: true
+  when:
+    - _pullsecret_raw is defined
 
 - name: Show resolved paths
   ansible.builtin.debug:

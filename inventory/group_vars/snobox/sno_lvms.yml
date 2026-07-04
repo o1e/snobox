@@ -5,3 +5,21 @@ sno_lvms:
   vg_name: vg-lvms
   disks:
     name_suffixes: []
+  # Optional Operator override values. Defaults are derived from distribution:
+  # - OCP: namespace openshift-storage, channel from ClusterVersion
+  # - OKD: namespace openshift-lvm-storage, channel from lvms-operator
+  #   PackageManifest defaultChannel
+  #
+  # OKD installs LVMS from the Red Hat Operator catalog by default. A fake OKD
+  # pull secret is enough to install OKD itself, but LVMS needs valid
+  # registry.redhat.io credentials or an override to another catalog that
+  # provides lvms-operator.
+  # operator:
+  #   namespace: openshift-lvm-storage
+  #   operatorgroup: lvm-storage-group
+  #   subscription: lvms-operator
+  #   package: lvms-operator
+  #   catalog_source: redhat-operators
+  #   catalog_namespace: openshift-marketplace
+  #   channel: stable-4.22
+  #   install_plan_approval: Automatic

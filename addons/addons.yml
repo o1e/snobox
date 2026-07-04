@@ -1,0 +1,10 @@
+---
+addons:
+  acsbox:
+    display_name: ACSbox
+    repo_url: git@github.com:o1e/acsbox_addon.git
+    default_ref: main
+  roxbox:
+    display_name: ROXbox
+    repo_url: git@github.com:o1e/roxbox_addon.git
+    default_ref: main

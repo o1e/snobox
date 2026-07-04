@@ -135,7 +135,7 @@
   failed_when: false
   when: (_vm_state.stdout | trim | lower) not in ['running', 'idle']
 
-- name: Wait until VM is running
+- name: Wait until SNO VM is running and bootstrap is in progress
   ansible.builtin.command: >
     virsh -c "{{ sno_build_libvirt_uri }}" domstate "{{ sno_build_vm_fqdn }}"
   delegate_to: localhost

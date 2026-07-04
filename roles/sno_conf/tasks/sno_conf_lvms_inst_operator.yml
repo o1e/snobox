@@ -8,12 +8,141 @@
   register: _cv
   changed_when: false
 
-- name: Derive LVMS channel from clusterversion.spec.channel (stable-x.yy)
+- name: Derive LVMS Operator defaults
   ansible.builtin.set_fact:
-    _lvms_channel: "{{ _cv.resources[0].spec.channel }}"
+    _lvms_operator_config: "{{ sno_conf_lvms.operator | default({}) }}"
+    _lvms_default_namespace: >-
+      {{
+        'openshift-lvm-storage'
+        if sno_conf_box.distribution == 'okd'
+        else 'openshift-storage'
+      }}
+    _lvms_default_channel: >-
+      {{
+        ''
+        if sno_conf_box.distribution == 'okd'
+        else _cv.resources[0].spec.channel | default('', true)
+      }}
   changed_when: false
 
-- name: Ensure openshift-storage namespace exists
+- name: Cache LVMS Operator settings
+  ansible.builtin.set_fact:
+    _lvms_namespace: "{{ _lvms_operator_config.namespace | default(_lvms_default_namespace) }}"
+    _lvms_operatorgroup: "{{ _lvms_operator_config.operatorgroup | default('lvm-storage-group') }}"
+    _lvms_subscription: "{{ _lvms_operator_config.subscription | default('lvms-operator') }}"
+    _lvms_package: "{{ _lvms_operator_config.package | default('lvms-operator') }}"
+    _lvms_catalog_source: "{{ _lvms_operator_config.catalog_source | default('redhat-operators') }}"
+    _lvms_catalog_namespace: "{{ _lvms_operator_config.catalog_namespace | default('openshift-marketplace') }}"
+    _lvms_channel: "{{ _lvms_operator_config.channel | default(_lvms_default_channel, true) }}"
+    _lvms_install_plan_approval: "{{ _lvms_operator_config.install_plan_approval | default('Automatic') }}"
+    _lvms_target_namespaces: >-
+      {{
+        _lvms_operator_config.target_namespaces
+        | default([_lvms_operator_config.namespace | default(_lvms_default_namespace)])
+      }}
+  changed_when: false
+
+- name: Validate LVMS Operator settings
+  ansible.builtin.assert:
+    that:
+      - _lvms_namespace | length > 0
+      - _lvms_operatorgroup | length > 0
+      - _lvms_subscription | length > 0
+      - _lvms_package | length > 0
+      - _lvms_catalog_source | length > 0
+      - _lvms_catalog_namespace | length > 0
+      - _lvms_install_plan_approval in ['Automatic', 'Manual']
+      - _lvms_target_namespaces is sequence
+      - _lvms_target_namespaces | length > 0
+    fail_msg: "LVMS Operator settings are incomplete."
+  changed_when: false
+
+- name: Read global pull secret for OKD LVMS catalog access
+  delegate_to: localhost
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: pull-secret
+    namespace: openshift-config
+  register: _lvms_global_pull_secret
+  changed_when: false
+  no_log: true
+  when:
+    - sno_conf_box.distribution == 'okd'
+    - _lvms_catalog_source in ['redhat-operators', 'certified-operators']
+    - _lvms_catalog_namespace == 'openshift-marketplace'
+
+- name: Validate OKD pull secret for Red Hat catalog access
+  ansible.builtin.assert:
+    that:
+      - _lvms_global_pull_secret.resources | length == 1
+      - >-
+        'registry.redhat.io' in (
+          (
+            _lvms_global_pull_secret.resources[0].data['.dockerconfigjson']
+            | b64decode
+            | from_json
+          ).auths.keys()
+        )
+      - >-
+        (
+          _lvms_global_pull_secret.resources[0].data['.dockerconfigjson']
+          | b64decode
+          | from_json
+        ).auths.keys()
+        | list
+        | difference(['fake'])
+        | length > 0
+    fail_msg: >-
+      OKD LVMS uses the Red Hat Operator catalog. Provide a valid
+      registry.redhat.io pull secret before enabling sno_lvms, or override
+      sno_lvms.operator.catalog_source/catalog_namespace to a catalog that
+      provides lvms-operator.
+  changed_when: false
+  when:
+    - sno_conf_box.distribution == 'okd'
+    - _lvms_catalog_source in ['redhat-operators', 'certified-operators']
+    - _lvms_catalog_namespace == 'openshift-marketplace'
+
+- name: Read OKD LVMS package manifest
+  delegate_to: localhost
+  kubernetes.core.k8s_info:
+    api_version: packages.operators.coreos.com/v1
+    kind: PackageManifest
+    name: "{{ _lvms_package }}"
+    namespace: default
+  register: _lvms_packagemanifest
+  until: >-
+    _lvms_packagemanifest.resources
+    | selectattr('status.catalogSource', 'equalto', _lvms_catalog_source)
+    | selectattr('status.catalogSourceNamespace', 'equalto', _lvms_catalog_namespace)
+    | selectattr('status.defaultChannel', 'defined')
+    | selectattr('status.defaultChannel', 'truthy')
+    | list
+    | length > 0
+  retries: 30
+  delay: 10
+  changed_when: false
+  when:
+    - sno_conf_box.distribution == 'okd'
+    - _lvms_channel | length == 0
+
+- name: Use OKD LVMS package default channel
+  ansible.builtin.set_fact:
+    _lvms_channel: >-
+      {{
+        _lvms_packagemanifest.resources
+        | selectattr('status.catalogSource', 'equalto', _lvms_catalog_source)
+        | selectattr('status.catalogSourceNamespace', 'equalto', _lvms_catalog_namespace)
+        | map(attribute='status.defaultChannel')
+        | first
+      }}
+  changed_when: false
+  when:
+    - sno_conf_box.distribution == 'okd'
+    - _lvms_channel | length == 0
+
+- name: Ensure LVMS Operator namespace exists
   delegate_to: localhost
   kubernetes.core.k8s:
     state: present
@@ -21,11 +150,12 @@
       apiVersion: v1
       kind: Namespace
       metadata:
-        name: openshift-storage
-
-# ---------------------------------------------------------
-# OperatorGroup
-# ---------------------------------------------------------
+        name: "{{ _lvms_namespace }}"
+        labels:
+          openshift.io/cluster-monitoring: "true"
+          pod-security.kubernetes.io/audit: privileged
+          pod-security.kubernetes.io/enforce: privileged
+          pod-security.kubernetes.io/warn: privileged
 
 - name: Ensure LVM OperatorGroup exists
   delegate_to: localhost
@@ -35,17 +165,30 @@
       apiVersion: operators.coreos.com/v1
       kind: OperatorGroup
       metadata:
-        name: lvm-storage-group
-        namespace: openshift-storage
+        name: "{{ _lvms_operatorgroup }}"
+        namespace: "{{ _lvms_namespace }}"
       spec:
-        targetNamespaces:
-          - openshift-storage
+        targetNamespaces: "{{ _lvms_target_namespaces }}"
 
-# ---------------------------------------------------------
-# Subscription
-# ---------------------------------------------------------
+- name: Build LVMS Subscription spec
+  ansible.builtin.set_fact:
+    _lvms_subscription_spec: >-
+      {{
+        {
+          'installPlanApproval': _lvms_install_plan_approval,
+          'name': _lvms_package,
+          'source': _lvms_catalog_source,
+          'sourceNamespace': _lvms_catalog_namespace
+        }
+        | combine(
+            {'channel': _lvms_channel}
+            if _lvms_channel | length > 0
+            else {}
+          )
+      }}
+  changed_when: false
 
-- name: Subscribe to LVMS Operator (dynamic channel)
+- name: Subscribe to LVMS Operator
   delegate_to: localhost
   kubernetes.core.k8s:
     state: present
@@ -53,25 +196,16 @@
       apiVersion: operators.coreos.com/v1alpha1
       kind: Subscription
       metadata:
-        name: lvms-operator
-        namespace: openshift-storage
-      spec:
-        channel: "{{ _lvms_channel }}"
-        installPlanApproval: Automatic
-        name: lvms-operator
-        source: redhat-operators
-        sourceNamespace: openshift-marketplace
-
-# ---------------------------------------------------------
-# Wait for CSV Succeeded
-# ---------------------------------------------------------
+        name: "{{ _lvms_subscription }}"
+        namespace: "{{ _lvms_namespace }}"
+      spec: "{{ _lvms_subscription_spec }}"
 
 - name: Wait until LVMS CSV is Succeeded
   delegate_to: localhost
   kubernetes.core.k8s_info:
     api_version: operators.coreos.com/v1alpha1
     kind: ClusterServiceVersion
-    namespace: openshift-storage
+    namespace: "{{ _lvms_namespace }}"
   register: _lvms_csv
   until: >
     _lvms_csv.resources
@@ -79,6 +213,6 @@
     | selectattr('status.phase', 'equalto', 'Succeeded')
     | list
     | length > 0
-  retries: 30
+  retries: 45
   delay: 20
   changed_when: false

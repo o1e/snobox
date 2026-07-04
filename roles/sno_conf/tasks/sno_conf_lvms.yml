@@ -6,7 +6,7 @@
 # This task file assumes it is only included when:
 #
 #   - sno_conf_lvms.enabled == true
-#   - sno_conf_box.distribution == "ocp"
+#   - sno_conf_box.distribution is "ocp" or "okd"
 #
 # The role main.yml is responsible for that gating.
 #
@@ -137,7 +137,7 @@
       kind: LVMCluster
       metadata:
         name: sno-lvmcluster
-        namespace: openshift-storage
+        namespace: "{{ _lvms_namespace }}"
       spec:
         storage:
           deviceClasses:

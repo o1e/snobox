@@ -5,6 +5,7 @@ strict: true
 exclude_paths:
   - .ansible/
   - .git/
+  - addons/
   - collections/
   - log/
   - state/
