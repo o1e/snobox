@@ -34,6 +34,13 @@ With `dns_mode: public_wildcard`, the effective base domain is derived from the
 configured node IP and public wildcard DNS provider. In that mode, no local DNS
 server is required for the generated API, ingress and node names.
 
+Static NetworkManager profiles keep the connection hostname short, persist the
+node FQDN through `/etc/hostname`, and write a static `/etc/resolv.conf`.
+NetworkManager DNS updates are disabled for those profiles so the cluster base
+domain is not derived as a resolver search domain. With wildcard providers such
+as `sslip.io`, that derived search domain would make external names like
+`quay.io.<base_domain>` resolve back to the node IP.
+
 ---
 
 ## Structure

@@ -3,7 +3,10 @@ id={{ sno_prep_box.hostname }}
 type=ethernet
 autoconnect=true
 interface-name=ens3
-hostname={{ sno_prep_dns.node_fqdn }}
+# Keep the NetworkManager profile hostname short. The persistent node FQDN is
+# written to /etc/hostname by ignition; putting the FQDN here makes
+# NetworkManager derive a resolver search domain from it.
+hostname={{ sno_prep_box.hostname }}
 
 [ethernet]
 mac-address={{ sno_net.mac }}
