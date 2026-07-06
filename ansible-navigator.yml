@@ -16,6 +16,10 @@ ansible-navigator:
     # Primary execution environment image.
     image: docker.io/o1eb/ee-ocp4:latest
 
+    environment-variables:
+      set:
+        TZ: Europe/Berlin
+
     pull:
       # Pull only when the image is not available locally.
       # Better for stable and repeatable local development.
