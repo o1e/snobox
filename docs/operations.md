@@ -59,8 +59,8 @@ state/<cluster>.<domain>/SNOBOX-SUMMARY.txt
 Examples:
 
 ```text
-state/snobox1.snobox/SNOBOX-SUMMARY.txt
-state/pubbox1.pubbox.192-168-2-15.sslip.io/SNOBOX-SUMMARY.txt
+state/snobox1.snobox1.example.org/SNOBOX-SUMMARY.txt
+state/pubbox1.pubbox1.192-168-2-15.sslip.io/SNOBOX-SUMMARY.txt
 ```
 
 The file contains the cluster FQDN, distribution/version, kubeconfig export,
@@ -91,7 +91,7 @@ ssh -i state/<cluster>.<domain>/ssh/id_<hostname> core@<node-fqdn>
 Example:
 
 ```bash
-ssh -i state/pubbox1.pubbox.192-168-2-15.sslip.io/ssh/id_pubbox1 core@pubbox1.pubbox.192-168-2-15.sslip.io
+ssh -i state/pubbox1.pubbox1.192-168-2-15.sslip.io/ssh/id_pubbox1 core@pubbox1.pubbox1.192-168-2-15.sslip.io
 ```
 
 ## Cleanup And Recreate

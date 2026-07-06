@@ -3,8 +3,9 @@ sno_box:
   # Hostname inside the VM (must match DNS records)
   hostname: pubbox1
 
-  # OpenShift cluster name (used for FQDN construction)
-  clustername: pubbox
+  # OpenShift cluster name (used for FQDN construction). Keep this unique per
+  # lab instance; the examples use the inventory hostname.
+  clustername: pubbox1
 
   # Base DNS domain.
   # Required for dns_mode: local, where it is used as-is for
