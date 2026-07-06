@@ -3,8 +3,9 @@ sno_box:
   # Hostname inside the VM (must match DNS records)
   hostname: snobox1
 
-  # OpenShift cluster name (used for FQDN construction)
-  clustername: snobox
+  # OpenShift cluster name (used for FQDN construction). Keep this unique per
+  # lab instance; the examples use the inventory hostname.
+  clustername: snobox1
 
   # Base DNS domain.
   # Required for dns_mode: local, where it is used as-is for

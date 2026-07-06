@@ -21,7 +21,7 @@ All systems follow a consistent naming pattern:
 
 Example:
 
-snobox1.snobox.example.org
+snobox1.snobox1.example.org
 
 This naming is used consistently across:
 
@@ -33,6 +33,12 @@ This naming is used consistently across:
 With `dns_mode: public_wildcard`, the effective base domain is derived from the
 configured node IP and public wildcard DNS provider. In that mode, no local DNS
 server is required for the generated API, ingress and node names.
+
+For multi-cluster labs, keep `sno_box.clustername` unique. The repository
+examples use the inventory host name as the cluster name so API, apps, console
+and state paths remain self-identifying, for example
+`apps.pubbox1.192-168-2-15.sslip.io` instead of
+`apps.pubbox.192-168-2-15.sslip.io`.
 
 Static NetworkManager profiles keep the connection hostname short, persist the
 node FQDN through `/etc/hostname`, and write a static `/etc/resolv.conf`.
@@ -124,7 +130,7 @@ Minimal example, based on `host_vars/snobox1_example/sno_box.yml`:
 ```yaml
 sno_box:
   hostname: snobox1
-  clustername: snobox
+  clustername: snobox1
   base_domain: example.org
   distribution: ocp
   ocp:
