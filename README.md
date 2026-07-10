@@ -213,6 +213,13 @@ tools/boxctl run roxbox --limit pubbox1
 tools/boxctl status
 ```
 
+Pass additional Ansible or `ansible-navigator` arguments after `--`:
+
+```bash
+tools/boxctl run roxbox --limit pubbox1 -- -vvv
+tools/boxctl run acsbox --limit pubbox1 -- --tags acsbox_compliance_reports
+```
+
 Add-on repositories provide `addon.yml`, an inventory template, playbooks and
 roles. The SNObox `boxctl` copies the add-on inventory template into
 `addons/<name>/inventory` once, leaving local overrides untouched on later runs.
@@ -224,6 +231,7 @@ roles. The SNObox `boxctl` copies the add-on inventory template into
 | [inventory/README.md](inventory/README.md) | inventory model, DNS modes, networking, storage and users |
 | [docs/operations.md](docs/operations.md) | full runs, targeted runs, resume, cleanup and access commands |
 | [docs/security.md](docs/security.md) | lab security notes, pull secrets, generated credentials and libvirt access |
+| [tools/README.md](tools/README.md) | helper tools, including `boxctl` add-on workflows |
 | [AGENTS.md](AGENTS.md) | repository and Ansible style rules for contributors and agents |
 
 Upstream documentation:
