@@ -3,11 +3,53 @@
 # OKD installer and client
 # ---------------------------------------------------------
 
-- name: Download openshift-install tarball (OKD)
+- name: Download sha256sum.txt for OKD clients
+  ansible.builtin.get_url:
+    url: "{{ sno_prep_urls.okd.inst_base_url }}/sha256sum.txt"
+    dest: "{{ sno_prep_workdirs.downloads_checksums }}/sha256sum_okd.txt"
+    mode: "0644"
+    force: true
+  delegate_to: localhost
+
+- name: Read OKD sha256sum lines
+  ansible.builtin.set_fact:
+    sno_prep_okd_checksum_lines: "{{ lookup('file', sno_prep_workdirs.downloads_checksums + '/sha256sum_okd.txt').splitlines() }}"
+
+- name: Find OKD installer and client checksum entries
+  ansible.builtin.set_fact:
+    sno_prep_okd_inst_checksum_entries: >-
+      {{
+        sno_prep_okd_checksum_lines
+        | select('search', '\s+' ~ (sno_prep_urls.okd.inst_bin | regex_escape) ~ '$')
+        | list
+      }}
+    sno_prep_okd_client_checksum_entries: >-
+      {{
+        sno_prep_okd_checksum_lines
+        | select('search', '\s+' ~ (sno_prep_urls.okd.oc_client_bin | regex_escape) ~ '$')
+        | list
+      }}
+
+- name: Fail if OKD checksums are missing
+  ansible.builtin.fail:
+    msg: >-
+      Missing checksum entry in OKD sha256sum.txt for
+      {{ sno_prep_urls.okd.inst_bin }} or {{ sno_prep_urls.okd.oc_client_bin }}.
+  when: >
+    (sno_prep_okd_inst_checksum_entries | length == 0) or
+    (sno_prep_okd_client_checksum_entries | length == 0)
+
+- name: Resolve OKD artifact checksums
+  ansible.builtin.set_fact:
+    sno_prep_okd_file_checksum_installer: "{{ sno_prep_okd_inst_checksum_entries[0] | regex_search('^[a-fA-F0-9]{64}') }}"
+    sno_prep_okd_file_checksum_oc: "{{ sno_prep_okd_client_checksum_entries[0] | regex_search('^[a-fA-F0-9]{64}') }}"
+
+- name: Download openshift-install tarball with checksum validation (OKD)
   ansible.builtin.get_url:
     url: "{{ sno_prep_urls.okd.inst_base_url }}/{{ sno_prep_urls.okd.inst_bin }}"
     dest: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_urls.okd.inst_bin }}"
     mode: "0644"
+    checksum: "sha256:{{ sno_prep_okd_file_checksum_installer }}"
   delegate_to: localhost
 
 - name: Extract openshift-install into bin/
@@ -24,11 +66,12 @@
     state: file
   delegate_to: localhost
 
-- name: Download oc client tarball (OKD)
+- name: Download oc client tarball with checksum validation (OKD)
   ansible.builtin.get_url:
     url: "{{ sno_prep_urls.okd.inst_base_url }}/{{ sno_prep_urls.okd.oc_client_bin }}"
     dest: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_urls.okd.oc_client_bin }}"
     mode: "0644"
+    checksum: "sha256:{{ sno_prep_okd_file_checksum_oc }}"
   delegate_to: localhost
 
 - name: Extract oc/kubectl into bin/
