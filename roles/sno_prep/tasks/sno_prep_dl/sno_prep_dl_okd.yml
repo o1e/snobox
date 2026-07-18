@@ -3,7 +3,7 @@
 # OKD installer and client
 # ---------------------------------------------------------
 
-- name: Download sha256sum.txt for OKD clients
+- name: Download sha256sum.txt (OKD)
   ansible.builtin.get_url:
     url: "{{ sno_prep_urls.okd.inst_base_url }}/sha256sum.txt"
     dest: "{{ sno_prep_workdirs.downloads_checksums }}/sha256sum_okd.txt"
@@ -11,11 +11,11 @@
     force: true
   delegate_to: localhost
 
-- name: Read OKD sha256sum lines
+- name: Read sha256sum lines (OKD)
   ansible.builtin.set_fact:
     sno_prep_okd_checksum_lines: "{{ lookup('file', sno_prep_workdirs.downloads_checksums + '/sha256sum_okd.txt').splitlines() }}"
 
-- name: Find OKD installer and client checksum entries
+- name: Find installer and client checksum entries (OKD)
   ansible.builtin.set_fact:
     sno_prep_okd_inst_checksum_entries: >-
       {{
@@ -30,7 +30,7 @@
         | list
       }}
 
-- name: Fail if OKD checksums are missing
+- name: Fail if checksums are missing (OKD)
   ansible.builtin.fail:
     msg: >-
       Missing checksum entry in OKD sha256sum.txt for
@@ -39,7 +39,7 @@
     (sno_prep_okd_inst_checksum_entries | length == 0) or
     (sno_prep_okd_client_checksum_entries | length == 0)
 
-- name: Resolve OKD artifact checksums
+- name: Resolve artifact checksums (OKD)
   ansible.builtin.set_fact:
     sno_prep_okd_file_checksum_installer: "{{ sno_prep_okd_inst_checksum_entries[0] | regex_search('^[a-fA-F0-9]{64}') }}"
     sno_prep_okd_file_checksum_oc: "{{ sno_prep_okd_client_checksum_entries[0] | regex_search('^[a-fA-F0-9]{64}') }}"
@@ -52,14 +52,14 @@
     checksum: "sha256:{{ sno_prep_okd_file_checksum_installer }}"
   delegate_to: localhost
 
-- name: Extract openshift-install into bin/
+- name: Extract openshift-install into bin/ (OKD)
   ansible.builtin.unarchive:
     src: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_urls.okd.inst_bin }}"
     dest: "{{ sno_prep_workdirs.bin }}"
     remote_src: true
   delegate_to: localhost
 
-- name: Ensure openshift-install is executable
+- name: Ensure openshift-install is executable (OKD)
   ansible.builtin.file:
     path: "{{ sno_prep_workdirs.bin }}/openshift-install"
     mode: "0755"
@@ -74,21 +74,21 @@
     checksum: "sha256:{{ sno_prep_okd_file_checksum_oc }}"
   delegate_to: localhost
 
-- name: Extract oc/kubectl into bin/
+- name: Extract oc/kubectl into bin/ (OKD)
   ansible.builtin.unarchive:
     src: "{{ sno_prep_workdirs.downloads }}/{{ sno_prep_urls.okd.oc_client_bin }}"
     dest: "{{ sno_prep_workdirs.bin }}"
     remote_src: true
   delegate_to: localhost
 
-- name: Ensure oc is executable
+- name: Ensure oc is executable (OKD)
   ansible.builtin.file:
     path: "{{ sno_prep_workdirs.bin }}/oc"
     mode: "0755"
     state: file
   delegate_to: localhost
 
-- name: Ensure kubectl is executable
+- name: Ensure kubectl is executable (OKD)
   ansible.builtin.file:
     path: "{{ sno_prep_workdirs.bin }}/kubectl"
     mode: "0755"
